@@ -39,6 +39,7 @@ import com.google.devtools.build.lib.rules.cpp.CcToolchainFeatures.FeatureConfig
 import com.google.devtools.build.lib.rules.cpp.CcToolchainFeatures.Variables.StringSequenceBuilder;
 import com.google.devtools.build.lib.rules.cpp.CcToolchainFeatures.Variables.VariablesExtension;
 import com.google.devtools.build.lib.rules.cpp.CppCompileAction.DotdFile;
+import com.google.devtools.build.lib.rules.cpp.CppConfiguration.DynamicMode;
 import com.google.devtools.build.lib.rules.cpp.Link.LinkStaticness;
 import com.google.devtools.build.lib.rules.cpp.Link.LinkTargetType;
 import com.google.devtools.build.lib.rules.cpp.Link.Picness;
@@ -48,6 +49,8 @@ import com.google.devtools.build.lib.util.FileType;
 import com.google.devtools.build.lib.util.Preconditions;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
 import com.google.devtools.build.lib.vfs.PathFragment;
+import com.google.devtools.build.lib.syntax.Type;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -1458,6 +1461,10 @@ public final class CppModel {
                       soImpl.getRootRelativePath(), /* preserveName= */ nomangle));
     }
 
+    // Link in any libraries that this library depends on
+    CcLinkParams linkParams = collectCcLinkParams(ruleContext,
+        isLinkShared(ruleContext));
+
     CppLinkActionBuilder dynamicLinkActionBuilder =
         newLinkActionBuilder(soImpl)
             .setInterfaceOutput(soInterface)
@@ -1474,7 +1481,8 @@ public final class CppModel {
                 ArtifactCategory.DYNAMIC_LIBRARY,
                 ccToolchain.getDynamicRuntimeLinkMiddleman(),
                 ccToolchain.getDynamicRuntimeLinkInputs())
-            .addVariablesExtensions(variablesExtensions);
+            .addVariablesExtensions(variablesExtensions)
+            .addLinkParams(linkParams, ruleContext);
 
     if (CppHelper.shouldUseDefFile(featureConfiguration)) {
       Artifact defFile =
@@ -1555,6 +1563,27 @@ public final class CppModel {
           !verbatim));
     }
     return result.build();
+  }
+
+  /**
+   * Collect link parameters from the transitive closure.
+   */
+  private static CcLinkParams collectCcLinkParams(RuleContext context,
+      boolean linkShared) {
+    CcLinkParams.Builder builder = CcLinkParams.builder(false, linkShared);
+
+    builder.addTransitiveTargets(
+        context.getPrerequisites("deps", Mode.TARGET),
+        CcLinkParamsInfo.TO_LINK_PARAMS, CcSpecificLinkParamsProvider.TO_LINK_PARAMS);
+    return builder.build();
+  }
+
+  /**
+   * Returns "true" if the {@code linkshared} attribute exists and is set.
+   */
+  private static final boolean isLinkShared(RuleContext context) {
+    return context.attributes().has("linkshared", Type.BOOLEAN)
+        && context.attributes().get("linkshared", Type.BOOLEAN);
   }
 
   private CppLinkActionBuilder newLinkActionBuilder(Artifact outputArtifact) {
