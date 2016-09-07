@@ -486,6 +486,11 @@ public class BazelCppRuleClasses {
           a lib prefix added to it.
           <!-- #END_BLAZE_RULE.ATTRIBUTE -->*/
           .add(attr("verbatim", BOOLEAN).value(false))
+          /*<!-- #BLAZE_RULE($cc_library).ATTRIBUTE(nomangle) -->
+          If 1, the library soname generated will only be the basename, without
+          mangled encoding of workspace package path.
+          <!-- #END_BLAZE_RULE.ATTRIBUTE -->*/
+          .add(attr("nomangle", BOOLEAN).value(false))
           .build();
     }
 

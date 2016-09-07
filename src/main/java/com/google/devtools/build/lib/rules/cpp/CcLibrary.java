@@ -120,6 +120,7 @@ public abstract class CcLibrary implements RuleConfiguredTargetFactory {
     }
 
     boolean verbatim = ruleContext.attributes().get("verbatim", Type.BOOLEAN);
+    boolean nomangle = ruleContext.attributes().get("nomangle", Type.BOOLEAN);
     CcLibraryHelper helper =
         new CcLibraryHelper(ruleContext, semantics, featureConfiguration, ccToolchain, fdoSupport)
             .fromCommon(common)
@@ -138,7 +139,8 @@ public abstract class CcLibrary implements RuleConfiguredTargetFactory {
             .setNeverLink(neverLink)
             .addPrecompiledFiles(precompiledFiles)
             .addLinkstamps(ruleContext.getPrerequisites("linkstamp", Mode.TARGET))
-            .setVerbatim(verbatim);
+            .setVerbatim(verbatim)
+            .setNomangle(nomangle);
 
     Artifact soImplArtifact = null;
     boolean supportsDynamicLinker = ccToolchain.supportsDynamicLinker();

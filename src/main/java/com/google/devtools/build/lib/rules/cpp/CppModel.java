@@ -182,6 +182,7 @@ public final class CppModel {
   private final Predicate<String> coptsFilter;
   private boolean fake;
   private boolean verbatim;
+  private boolean nomangle;
   private boolean maySaveTemps;
   private boolean onlySingleOutput;
   private CcCompilationOutputs compilationOutputs;
@@ -277,6 +278,15 @@ public final class CppModel {
    */
   public CppModel setVerbatim(boolean verbatim) {
     this.verbatim = verbatim;
+    return this;
+  }
+
+  /**
+   * Control library soname/symlink mangling.
+   * Defaults to false.
+   */
+  public CppModel setNomangle(boolean nomangle) {
+    this.nomangle = nomangle;
     return this;
   }
 
@@ -1433,7 +1443,7 @@ public final class CppModel {
             ImmutableList.of(
                 "-Wl,-soname="
                     + SolibSymlinkAction.getDynamicLibrarySoname(
-                        soImpl.getRootRelativePath(), /* preserveName= */ false));
+                        soImpl.getRootRelativePath(), /* preserveName= */ nomangle));
       }
     }
 
@@ -1513,7 +1523,7 @@ public final class CppModel {
               ruleContext,
               ccToolchain.getSolibDirectory(),
               interfaceLibrary.getArtifact(),
-              /* preserveName= */ false,
+              /* preserveName= */ nomangle,
               /* prefixConsumer= */ false,
               ruleContext.getConfiguration());
       result.addDynamicLibrary(LinkerInputs.solibLibraryToLink(
@@ -1526,7 +1536,7 @@ public final class CppModel {
               ruleContext,
               ccToolchain.getSolibDirectory(),
               dynamicLibrary.getArtifact(),
-              /* preserveName= */ false,
+              /* preserveName= */ nomangle,
               /* prefixConsumer= */ false,
               ruleContext.getConfiguration());
       result.addExecutionDynamicLibrary(LinkerInputs.solibLibraryToLink(

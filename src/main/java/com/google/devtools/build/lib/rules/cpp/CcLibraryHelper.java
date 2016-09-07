@@ -290,6 +290,7 @@ public final class CcLibraryHelper {
   private boolean neverlink;
   private boolean fake;
   private boolean verbatim;
+  private boolean nomangle;
 
   private final List<LibraryToLink> staticLibraries = new ArrayList<>();
   private final List<LibraryToLink> picStaticLibraries = new ArrayList<>();
@@ -854,6 +855,14 @@ public final class CcLibraryHelper {
   }
 
   /**
+   * Sets the model link action as nomangle, preventing mangled soname/symlink specification.
+   */
+  public CcLibraryHelper setNomangle(boolean nomangle) {
+    this.nomangle = nomangle;
+    return this;
+  }
+
+  /**
    * This adds the {@link CcNativeLibraryProvider} to the providers created by this class.
    */
   public CcLibraryHelper enableCcNativeLibrariesProvider() {
@@ -1188,7 +1197,8 @@ public final class CcLibraryHelper {
         .setFeatureConfiguration(featureConfiguration)
         .addVariablesExtension(variablesExtensions)
         .setLinkedArtifactNameSuffix(linkedArtifactNameSuffix)
-        .setVerbatim(verbatim);
+        .setVerbatim(verbatim)
+        .setNomangle(nomangle);
   }
 
   @Immutable
