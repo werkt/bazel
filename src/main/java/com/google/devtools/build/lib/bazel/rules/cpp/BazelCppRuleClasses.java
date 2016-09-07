@@ -491,6 +491,10 @@ public class BazelCppRuleClasses {
           mangled encoding of workspace package path.
           <!-- #END_BLAZE_RULE.ATTRIBUTE -->*/
           .add(attr("nomangle", BOOLEAN).value(false))
+          /*<!-- #BLAZE_RULE($cc_library).ATTRIBUTE(soname) -->
+          If 1, the library soname will be specified.
+          <!-- #END_BLAZE_RULE.ATTRIBUTE -->*/
+          .add(attr("soname", BOOLEAN).value(false))
           .build();
     }
 

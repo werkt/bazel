@@ -290,6 +290,7 @@ public final class CcLibraryHelper {
   private boolean neverlink;
   private boolean fake;
   private boolean verbatim;
+  private boolean soname;
   private boolean nomangle;
 
   private final List<LibraryToLink> staticLibraries = new ArrayList<>();
@@ -855,6 +856,14 @@ public final class CcLibraryHelper {
   }
 
   /**
+   * Sets the model link action as soname, compelling it to include a soname in the library
+   */
+  public CcLibraryHelper setSoname(boolean soname) {
+    this.soname = soname;
+    return this;
+  }
+
+  /**
    * Sets the model link action as nomangle, preventing mangled soname/symlink specification.
    */
   public CcLibraryHelper setNomangle(boolean nomangle) {
@@ -1198,6 +1207,7 @@ public final class CcLibraryHelper {
         .addVariablesExtension(variablesExtensions)
         .setLinkedArtifactNameSuffix(linkedArtifactNameSuffix)
         .setVerbatim(verbatim)
+        .setSoname(soname)
         .setNomangle(nomangle);
   }
 

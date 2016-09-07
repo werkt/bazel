@@ -182,6 +182,7 @@ public final class CppModel {
   private final Predicate<String> coptsFilter;
   private boolean fake;
   private boolean verbatim;
+  private boolean soname;
   private boolean nomangle;
   private boolean maySaveTemps;
   private boolean onlySingleOutput;
@@ -278,6 +279,15 @@ public final class CppModel {
    */
   public CppModel setVerbatim(boolean verbatim) {
     this.verbatim = verbatim;
+    return this;
+  }
+
+  /**
+   * Control the output of a soname in dynamic library output
+   * Defaults to false.
+   */
+  public CppModel setSoname(boolean soname) {
+    this.soname = soname;
     return this;
   }
 
@@ -1437,14 +1447,15 @@ public final class CppModel {
               LinkTargetType.INTERFACE_DYNAMIC_LIBRARY,
               linkedArtifactNameSuffix,
               !verbatim);
-      // TODO(b/28946988): Remove this hard-coded flag.
-      if (!featureConfiguration.isEnabled(CppRuleClasses.TARGETS_WINDOWS)) {
-        sonameLinkopts =
-            ImmutableList.of(
-                "-Wl,-soname="
-                    + SolibSymlinkAction.getDynamicLibrarySoname(
-                        soImpl.getRootRelativePath(), /* preserveName= */ nomangle));
-      }
+    }
+    // TODO(b/28946988): Remove this hard-coded flag.
+    if (!featureConfiguration.isEnabled(CppRuleClasses.TARGETS_WINDOWS)
+        && (soInterface != null || verbatim || soname)) {
+      sonameLinkopts =
+          ImmutableList.of(
+              "-Wl,-soname="
+                  + SolibSymlinkAction.getDynamicLibrarySoname(
+                      soImpl.getRootRelativePath(), /* preserveName= */ nomangle));
     }
 
     CppLinkActionBuilder dynamicLinkActionBuilder =
