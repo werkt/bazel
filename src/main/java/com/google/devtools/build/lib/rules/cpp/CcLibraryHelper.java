@@ -289,6 +289,7 @@ public final class CcLibraryHelper {
   private HeadersCheckingMode headersCheckingMode = HeadersCheckingMode.LOOSE;
   private boolean neverlink;
   private boolean fake;
+  private boolean verbatim;
 
   private final List<LibraryToLink> staticLibraries = new ArrayList<>();
   private final List<LibraryToLink> picStaticLibraries = new ArrayList<>();
@@ -845,6 +846,14 @@ public final class CcLibraryHelper {
   }
 
   /**
+   * Sets the model link action as verbatim, omitting the "lib" prefix
+   */
+  public CcLibraryHelper setVerbatim(boolean verbatim) {
+    this.verbatim = verbatim;
+    return this;
+  }
+
+  /**
    * This adds the {@link CcNativeLibraryProvider} to the providers created by this class.
    */
   public CcLibraryHelper enableCcNativeLibrariesProvider() {
@@ -1120,14 +1129,16 @@ public final class CcLibraryHelper {
               ruleContext,
               configuration,
               Link.LinkTargetType.ALWAYS_LINK_STATIC_LIBRARY,
-              linkedArtifactNameSuffix));
+              linkedArtifactNameSuffix,
+              !verbatim));
     } else {
       archiveFile.add(
           CppHelper.getLinuxLinkedArtifact(
               ruleContext,
               configuration,
               Link.LinkTargetType.STATIC_LIBRARY,
-              linkedArtifactNameSuffix));
+              linkedArtifactNameSuffix,
+              !verbatim));
     }
 
     if (!ruleContext.attributes().get("linkstatic", Type.BOOLEAN)
@@ -1137,7 +1148,8 @@ public final class CcLibraryHelper {
               ruleContext,
               configuration,
               Link.LinkTargetType.DYNAMIC_LIBRARY,
-              linkedArtifactNameSuffix));
+              linkedArtifactNameSuffix,
+              !verbatim));
 
       if (ccToolchain.getCppConfiguration().useInterfaceSharedObjects()
           && emitInterfaceSharedObjects) {
@@ -1146,7 +1158,8 @@ public final class CcLibraryHelper {
                 ruleContext,
                 configuration,
                 LinkTargetType.INTERFACE_DYNAMIC_LIBRARY,
-                linkedArtifactNameSuffix));
+                linkedArtifactNameSuffix,
+                !verbatim));
       }
     }
 
@@ -1174,7 +1187,8 @@ public final class CcLibraryHelper {
         .addLinkopts(linkopts)
         .setFeatureConfiguration(featureConfiguration)
         .addVariablesExtension(variablesExtensions)
-        .setLinkedArtifactNameSuffix(linkedArtifactNameSuffix);
+        .setLinkedArtifactNameSuffix(linkedArtifactNameSuffix)
+        .setVerbatim(verbatim);
   }
 
   @Immutable

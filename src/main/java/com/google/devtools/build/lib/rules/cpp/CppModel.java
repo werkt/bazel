@@ -181,6 +181,7 @@ public final class CppModel {
   private final ImmutableList<String> copts;
   private final Predicate<String> coptsFilter;
   private boolean fake;
+  private boolean verbatim;
   private boolean maySaveTemps;
   private boolean onlySingleOutput;
   private CcCompilationOutputs compilationOutputs;
@@ -267,6 +268,15 @@ public final class CppModel {
    */
   public CppModel setFake(boolean fake) {
     this.fake = fake;
+    return this;
+  }
+
+  /**
+   * Require this information to get linker output filename.
+   * Defaults to false.
+   */
+  public CppModel setVerbatim(boolean verbatim) {
+    this.verbatim = verbatim;
     return this;
   }
 
@@ -1255,7 +1265,7 @@ public final class CppModel {
     Artifact result = null;
     Artifact linuxDefault =
         CppHelper.getLinuxLinkedArtifact(
-            ruleContext, configuration, linkTargetType, linkedArtifactNameSuffix);
+            ruleContext, configuration, linkTargetType, linkedArtifactNameSuffix, !verbatim);
 
     try {
       String maybePicName = ruleContext.getLabel().getName() + linkedArtifactNameSuffix;
@@ -1264,7 +1274,7 @@ public final class CppModel {
             ruleContext, ccToolchain, ArtifactCategory.PIC_FILE, maybePicName);
       }
       String linkedName = CppHelper.getArtifactNameForCategory(
-          ruleContext, ccToolchain, linkTargetType.getLinkerOutput(), maybePicName);
+          ruleContext, ccToolchain, linkTargetType.getLinkerOutput(verbatim), maybePicName);
       PathFragment artifactFragment = PathFragment.create(ruleContext.getLabel().getName())
           .getParentDirectory().getRelative(linkedName);
 
@@ -1415,7 +1425,8 @@ public final class CppModel {
               ruleContext,
               configuration,
               LinkTargetType.INTERFACE_DYNAMIC_LIBRARY,
-              linkedArtifactNameSuffix);
+              linkedArtifactNameSuffix,
+              !verbatim);
       // TODO(b/28946988): Remove this hard-coded flag.
       if (!featureConfiguration.isEnabled(CppRuleClasses.TARGETS_WINDOWS)) {
         sonameLinkopts =
@@ -1506,7 +1517,10 @@ public final class CppModel {
               /* prefixConsumer= */ false,
               ruleContext.getConfiguration());
       result.addDynamicLibrary(LinkerInputs.solibLibraryToLink(
-          libraryLink, interfaceLibrary.getArtifact(), libraryIdentifier));
+          libraryLink,
+          interfaceLibrary.getArtifact(),
+          libraryIdentifier,
+          !verbatim));
       Artifact implLibraryLink =
           SolibSymlinkAction.getDynamicLibrarySymlink(
               ruleContext,
@@ -1516,7 +1530,8 @@ public final class CppModel {
               /* prefixConsumer= */ false,
               ruleContext.getConfiguration());
       result.addExecutionDynamicLibrary(LinkerInputs.solibLibraryToLink(
-          implLibraryLink, dynamicLibrary.getArtifact(), libraryIdentifier));
+          implLibraryLink, dynamicLibrary.getArtifact(), libraryIdentifier,
+          !verbatim));
     }
     return result.build();
   }
@@ -1525,7 +1540,8 @@ public final class CppModel {
     return new CppLinkActionBuilder(
             ruleContext, outputArtifact, ccToolchain, fdoSupport, featureConfiguration, semantics)
         .setCrosstoolInputs(ccToolchain.getLink())
-        .addNonCodeInputs(context.getTransitiveCompilationPrerequisites());
+        .addNonCodeInputs(context.getTransitiveCompilationPrerequisites())
+        .setVerbatim(verbatim);
   }
 
   /**

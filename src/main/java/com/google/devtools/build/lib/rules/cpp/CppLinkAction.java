@@ -114,6 +114,7 @@ public final class CppLinkAction extends AbstractAction
 
   /** True for cc_fake_binary targets. */
   private final boolean fake;
+  private final boolean verbatim;
   private final boolean isLtoIndexing;
 
   private final PathFragment ldExecutable;
@@ -155,6 +156,7 @@ public final class CppLinkAction extends AbstractAction
       Artifact linkOutput,
       LibraryToLink interfaceOutputLibrary,
       boolean fake,
+      boolean verbatim,
       boolean isLtoIndexing,
       LinkCommandLine linkCommandLine,
       ImmutableSet<String> clientEnvironmentVariables,
@@ -174,6 +176,7 @@ public final class CppLinkAction extends AbstractAction
     this.linkOutput = linkOutput;
     this.interfaceOutputLibrary = interfaceOutputLibrary;
     this.fake = fake;
+    this.verbatim = verbatim;
     this.isLtoIndexing = isLtoIndexing;
     this.linkCommandLine = linkCommandLine;
     this.clientEnvironmentVariables = clientEnvironmentVariables;
@@ -565,6 +568,7 @@ public final class CppLinkAction extends AbstractAction
     final LinkTargetType linkType;
     final LinkStaticness linkStaticness;
     final boolean fake;
+    final boolean verbatim;
     final boolean isNativeDeps;
     final boolean useTestOnlyFlags;
 
@@ -593,6 +597,7 @@ public final class CppLinkAction extends AbstractAction
       this.linkType = builder.getLinkType();
       this.linkStaticness = builder.getLinkStaticness();
       this.fake = builder.isFake();
+      this.verbatim = builder.isVerbatim();
       this.isNativeDeps = builder.isNativeDeps();
       this.useTestOnlyFlags = builder.useTestOnlyFlags();
     }

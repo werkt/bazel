@@ -456,8 +456,8 @@ public class CppHelper {
    * @param linkType the type of artifact, used to determine extension
    */
   public static Artifact getLinuxLinkedArtifact(
-      RuleContext ruleContext, BuildConfiguration config, LinkTargetType linkType) {
-    return getLinuxLinkedArtifact(ruleContext, config, linkType, "");
+      RuleContext ruleContext, BuildConfiguration config, LinkTargetType linkType, boolean libPrefix) {
+    return getLinuxLinkedArtifact(ruleContext, config, linkType, "", libPrefix);
   }
 
   /** Returns the linked artifact with the given suffix for linux. */
@@ -465,11 +465,16 @@ public class CppHelper {
       RuleContext ruleContext,
       BuildConfiguration config,
       LinkTargetType linkType,
-      String linkedArtifactNameSuffix) {
+      String linkedArtifactNameSuffix,
+      boolean libPrefix) {
     PathFragment name = PathFragment.create(ruleContext.getLabel().getName());
     if (linkType != LinkTargetType.EXECUTABLE) {
+      String baseName = name.getBaseName();
+      if (libPrefix) {
+        baseName = "lib" + baseName;
+      }
       name = name.replaceName(
-          "lib" + name.getBaseName() + linkedArtifactNameSuffix  + linkType.getExtension());
+          baseName + linkedArtifactNameSuffix  + linkType.getExtension());
     }
 
     return ruleContext.getPackageRelativeArtifact(
