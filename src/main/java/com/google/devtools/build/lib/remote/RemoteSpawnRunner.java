@@ -15,6 +15,8 @@
 package com.google.devtools.build.lib.remote;
 
 import static com.google.devtools.build.lib.remote.util.Utils.getFromFuture;
+import static com.google.devtools.build.lib.remote.RemoteActionContextProvider.getLogIdentifier;
+import static com.google.devtools.build.lib.remote.RemoteActionContextProvider.getLogMessage;
 
 import build.bazel.remote.execution.v2.Action;
 import build.bazel.remote.execution.v2.ActionResult;
@@ -28,6 +30,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.devtools.build.lib.actions.ActionInput;
 import com.google.devtools.build.lib.actions.Artifact;
 import com.google.devtools.build.lib.actions.CommandLines.ParamFileActionInput;
@@ -88,6 +91,7 @@ class RemoteSpawnRunner implements SpawnRunner {
 
   @Nullable private final Reporter cmdlineReporter;
   @Nullable private final AbstractRemoteActionCache remoteCache;
+  @Nullable private final AtomicLogger remoteCacheLogger;
   @Nullable private final GrpcRemoteExecutor remoteExecutor;
   @Nullable private final RemoteRetrier retrier;
   private final String buildRequestId;
@@ -108,6 +112,7 @@ class RemoteSpawnRunner implements SpawnRunner {
       String buildRequestId,
       String commandId,
       @Nullable AbstractRemoteActionCache remoteCache,
+      @Nullable AtomicLogger remoteCacheLogger,
       @Nullable GrpcRemoteExecutor remoteExecutor,
       @Nullable RemoteRetrier retrier,
       DigestUtil digestUtil,
@@ -117,6 +122,7 @@ class RemoteSpawnRunner implements SpawnRunner {
     this.executionOptions = executionOptions;
     this.fallbackRunner = fallbackRunner;
     this.remoteCache = remoteCache;
+    this.remoteCacheLogger = remoteCacheLogger;
     this.remoteExecutor = remoteExecutor;
     this.verboseFailures = verboseFailures;
     this.cmdlineReporter = cmdlineReporter;
@@ -136,7 +142,11 @@ class RemoteSpawnRunner implements SpawnRunner {
   public SpawnResult exec(Spawn spawn, SpawnExecutionContext context)
       throws ExecException, InterruptedException, IOException {
     if (!Spawns.mayBeExecutedRemotely(spawn) || remoteCache == null) {
-      return execLocally(spawn, context);
+      return execLocally(
+          spawn,
+          context,
+          /* uploadToCache=*/ remoteOptions.remoteUploadLocalResults,
+          /* actionKey=*/ null);
     }
 
     context.report(ProgressStatus.EXECUTING, getName());
@@ -167,11 +177,33 @@ class RemoteSpawnRunner implements SpawnRunner {
     try {
       boolean acceptCachedResult = remoteOptions.remoteAcceptCached && Spawns.mayBeCached(spawn);
       boolean uploadLocalResults = remoteOptions.remoteUploadLocalResults;
+      String progressMessage = spawn.getResourceOwner().getProgressMessage();
+      String actionKeyString = digestUtil.toString(actionKey.getDigest());
 
       try {
+        log(String.format(
+            "%sGET-ACTION,%s,%s",
+            acceptCachedResult ? "" : "SKIPPED-",
+            actionKeyString,
+            progressMessage));
         // Try to lookup the action in the action cache.
-        ActionResult cachedResult =
-            acceptCachedResult ? remoteCache.getCachedActionResult(actionKey) : null;
+        ActionResult cachedResult = acceptCachedResult ? remoteCache.getCachedActionResult(actionKey) : null;
+
+        if (remoteCacheLogger != null && acceptCachedResult && (remoteOptions.logAllActions ||
+            (cachedResult == null && remoteOptions.logMissedActions))) {
+          StringBuilder logActionBuilder = new StringBuilder();
+
+          logActionBuilder.append(actionKeyString + ": outputs: " + Iterables.transform(spawn.getOutputFiles(), (outputFile) -> outputFile.getExecPathString()) + "\n");
+          logActionBuilder.append(actionKeyString + ": args: " + spawn.getArguments() + "\n");
+          logActionBuilder.append(actionKeyString + ": envp: " + spawn.getEnvironment() + "\n");
+          logActionBuilder.append(actionKeyString + ": platform: " + command.getPlatform() + "\n");
+          logActionBuilder.append(actionKeyString + ": timeout: " + context.getTimeout() + "\n");
+          repository.printMerkleTree(logActionBuilder, inputRoot);
+
+          // direct log call here after test to reduce overhead/mem and prevent extra newline
+          remoteCacheLogger.log(logActionBuilder.toString());
+        }
+
         if (cachedResult != null) {
           if (cachedResult.getExitCode() != 0) {
             // The remote cache must never serve a failed action.
@@ -211,8 +243,9 @@ class RemoteSpawnRunner implements SpawnRunner {
               .setActionDigest(actionKey.getDigest())
               .setSkipCacheLookup(!acceptCachedResult)
               .build();
+      SpawnResult result;
       try {
-        return retrier.execute(
+        result = retrier.execute(
             () -> {
               // Upload the command and all the inputs into the remote cache.
              remoteCache.ensureInputsPresent(repository, execRoot, inputRoot, action, command);
@@ -229,6 +262,14 @@ class RemoteSpawnRunner implements SpawnRunner {
             spawn, context, inputMap, actionKey, action, command, uploadLocalResults, e);
       }
 
+      String logIdentifier =
+          getLogIdentifier(
+              /* success=*/ result != null && Status.SUCCESS.equals(result.status()) && result.exitCode() == 0,
+              Spawns.mayBeCached(spawn),
+              /* wasExecutedLocally=*/ false,
+              /* upload=*/ false);
+      log(getLogMessage(logIdentifier, actionKeyString, progressMessage));
+      return result;
     } finally {
       withMetadata.detach(previous);
     }
@@ -288,9 +329,26 @@ class RemoteSpawnRunner implements SpawnRunner {
         .setExitCode(exitCode);
   }
 
-  private SpawnResult execLocally(Spawn spawn, SpawnExecutionContext context)
+  private SpawnResult execLocally(
+      Spawn spawn,
+      SpawnExecutionContext context,
+      boolean uploadToCache,
+      @Nullable ActionKey actionKey)
       throws ExecException, InterruptedException, IOException {
-    return fallbackRunner.get().exec(spawn, context);
+    SpawnResult result = fallbackRunner.get().exec(spawn, context);
+    String progressMessage = spawn.getResourceOwner().getProgressMessage();
+    String actionKeyString = actionKey != null
+        ? digestUtil.toString(actionKey.getDigest()) + ","
+        : "";
+
+    String identifier = getLogIdentifier(
+        result.exitCode() == 0 && Status.SUCCESS.equals(result.status()),
+        Spawns.mayBeCached(spawn),
+        /*wasExecutedLocally*/ true,
+        actionKey != null && remoteCache != null ? uploadToCache : false);
+
+    log(String.format("%s,%s%s", identifier, actionKeyString, progressMessage));
+    return result;
   }
 
   private SpawnResult execLocallyAndUploadOrFail(
@@ -460,7 +518,7 @@ class RemoteSpawnRunner implements SpawnRunner {
       boolean uploadLocalResults)
       throws ExecException, IOException, InterruptedException {
     Map<Path, Long> ctimesBefore = getInputCtimes(inputMap);
-    SpawnResult result = execLocally(spawn, context);
+    SpawnResult result = execLocally(spawn, context, uploadLocalResults, actionKey);
     Map<Path, Long> ctimesAfter = getInputCtimes(inputMap);
     for (Map.Entry<Path, Long> e : ctimesBefore.entrySet()) {
       // Skip uploading to remote cache, because an input was modified during execution.
@@ -471,20 +529,36 @@ class RemoteSpawnRunner implements SpawnRunner {
     if (!uploadLocalResults) {
       return result;
     }
-    boolean uploadAction =
-        Spawns.mayBeCached(spawn)
-            && Status.SUCCESS.equals(result.status())
+    boolean success =
+        Status.SUCCESS.equals(result.status())
             && result.exitCode() == 0;
+    boolean uploadAction = Spawns.mayBeCached(spawn) && success;
     Collection<Path> outputFiles = resolveActionInputs(execRoot, spawn.getOutputFiles());
+    String actionKeyString = digestUtil.toString(actionKey.getDigest());
+    String progressMessage = spawn.getResourceOwner().getProgressMessage();
     try {
       remoteCache.upload(
           actionKey, action, command, execRoot, outputFiles, context.getFileOutErr(), uploadAction);
+      String logIdentifier =
+          getLogIdentifier(
+              success,
+              Spawns.mayBeCached(spawn),
+              /* wasExecutedLocally=*/ true,
+              remoteOptions.remoteUploadLocalResults);
+      log(getLogMessage(logIdentifier, actionKeyString, progressMessage));
     } catch (IOException e) {
       if (verboseFailures) {
         report(Event.debug("Upload to remote cache failed: " + e.getMessage()));
       } else {
         reportOnce(Event.warn("Some artifacts failed be uploaded to the remote cache."));
       }
+      String logIdentifier =
+          getLogIdentifier(
+              success,
+              Spawns.mayBeCached(spawn),
+              /*wasExecutedLocally*/ true,
+              /*upload*/ false);
+      log(getLogMessage(logIdentifier, actionKeyString, progressMessage));
     }
     return result;
   }
@@ -511,5 +585,11 @@ class RemoteSpawnRunner implements SpawnRunner {
         .stream()
         .map((inp) -> execRoot.getRelative(inp.getExecPath()))
         .collect(ImmutableList.toImmutableList());
+  }
+
+  private void log(String message) throws IOException {
+    if (remoteCacheLogger != null && remoteCacheLogger.isOpen()) {
+      remoteCacheLogger.log(message + "\n");
+    }
   }
 }

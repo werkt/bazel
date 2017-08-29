@@ -162,6 +162,17 @@ public final class RemoteModule extends BlazeModule {
 
       final RemoteRetrier executeRetrier;
       final AbstractRemoteActionCache cache;
+      AtomicLogger cacheLogger;
+      if (remoteOptions.remoteCacheLogFilename == null) {
+        cacheLogger = null;
+      } else {
+        try {
+          cacheLogger = new AtomicLogger(remoteOptions.remoteCacheLogFilename);
+        } catch (IOException e) {
+          cacheLogger = null;
+          env.getReporter().handle(Event.error("Error while creating remote action cache log file: " + e.getMessage()));
+        }
+      }
       if (enableBlobStoreCache) {
         Retrier retrier =
             new Retrier(
@@ -245,7 +256,7 @@ public final class RemoteModule extends BlazeModule {
         executor = null;
       }
       actionContextProvider =
-          new RemoteActionContextProvider(env, cache, executor, executeRetrier, digestUtil, logDir);
+          new RemoteActionContextProvider(env, cache, cacheLogger, executor, executeRetrier, digestUtil, logDir);
     } catch (IOException e) {
       env.getReporter().handle(Event.error(e.getMessage()));
       env.getBlazeModuleEnvironment()

@@ -58,6 +58,28 @@ public final class RemoteOptions extends OptionsBase {
   public int remoteMaxConnections;
 
   @Option(
+    name = "remote_cache_log_missed_actions",
+    defaultValue = "false",
+    category = "remote",
+    documentationCategory = OptionDocumentationCategory.LOGGING,
+    effectTags = {OptionEffectTag.BAZEL_MONITORING},
+    help = "Log action definition with remote action cache misses. "
+            + "Only functional with hazelcast logging"
+  )
+  public boolean logMissedActions;
+
+  @Option(
+    name = "remote_cache_log_all_actions",
+    defaultValue = "false",
+    category = "remote",
+    documentationCategory = OptionDocumentationCategory.LOGGING,
+    effectTags = {OptionEffectTag.BAZEL_MONITORING},
+    help = "Log action definition for remote action cache. "
+            + "Only functional with hazelcast logging"
+  )
+  public boolean logAllActions;
+
+  @Option(
     name = "remote_executor",
     defaultValue = "null",
     documentationCategory = OptionDocumentationCategory.UNCATEGORIZED,
@@ -247,4 +269,16 @@ public final class RemoteOptions extends OptionsBase {
               + "If this option is not enabled, "
               + "cachable actions that output symlinks will fail.")
   public boolean allowSymlinkUpload;
+
+  @Option(
+    name = "remote_cache_log_filename",
+    defaultValue = "null",
+    category = "remote",
+    documentationCategory = OptionDocumentationCategory.LOGGING,
+    effectTags = {OptionEffectTag.BAZEL_MONITORING},
+    help = "Log remote cache interactions to this file. Each entry contains the following:"
+        + " 'ACTION,KEY,ID', ACTION is the request type, KEY is the cache's identifier,"
+        + " ID is a context description identifier for the request."
+  )
+  public String remoteCacheLogFilename;
 }

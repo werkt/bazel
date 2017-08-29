@@ -14,10 +14,12 @@
 
 package com.google.devtools.build.lib.remote;
 
+import static com.google.common.collect.Maps.uniqueIndex;
 import static java.nio.charset.StandardCharsets.US_ASCII;
 
 import build.bazel.remote.execution.v2.Digest;
 import build.bazel.remote.execution.v2.Directory;
+import build.bazel.remote.execution.v2.FileNode;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableCollection;
@@ -420,6 +422,32 @@ public final class TreeNodeRepository {
     return node.isLeaf()
         ? actionInputToDigest(node.getActionInput())
         : treeNodeDigestCache.get(node);
+  }
+
+  public synchronized void printMerkleTree(Appendable output, TreeNode node) throws IOException {
+    printNode(output, node,"", null);
+  }
+
+  private void printNode(Appendable output, TreeNode node, String indent, Map<String, FileNode> fileNodeIndex)
+      throws IOException {
+    Digest digest = getMerkleDigest(node);
+    if (node.getActionInput() == null) {
+      output.append(indent + "Directory: " + digestUtil.toString(digest) + "\n");
+    } else {
+      String inputBaseName = node.getActionInput().getExecPath().getBaseName();
+      output.append(String.format("%sActionInput: %s: %s%s\n",
+          indent,
+          digestUtil.toString(digest),
+          node.getActionInput().getExecPathString(),
+          fileNodeIndex.get(inputBaseName).getIsExecutable() ? "*" : ""));
+    }
+    if (!node.isLeaf()) {
+      Map<String, FileNode> childFileNodeIndex = uniqueIndex(directoryCache.get(node).getFilesList(), (f) -> f.getName());
+      for (TreeNode.ChildEntry childEntry : node.getChildEntries()) {
+        output.append(indent + "ChildEntry: " + childEntry.getSegment() + "\n");
+        printNode(output, childEntry.getChild(), indent + "  ", childFileNodeIndex);
+      }
+    }
   }
 
   /**

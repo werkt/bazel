@@ -28,6 +28,7 @@ import com.google.devtools.build.lib.remote.util.DigestUtil;
 import com.google.devtools.build.lib.runtime.CommandEnvironment;
 import com.google.devtools.build.lib.util.ExitCode;
 import com.google.devtools.build.lib.vfs.Path;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.SortedSet;
@@ -42,6 +43,7 @@ final class RemoteActionContextProvider extends ActionContextProvider {
   private final CommandEnvironment env;
   @Nullable private final AbstractRemoteActionCache cache;
   @Nullable private final GrpcRemoteExecutor executor;
+  @Nullable private final AtomicLogger cacheLogger;
   private final RemoteRetrier retrier;
   private final DigestUtil digestUtil;
   private final Path logDir;
@@ -50,6 +52,7 @@ final class RemoteActionContextProvider extends ActionContextProvider {
   RemoteActionContextProvider(
       CommandEnvironment env,
       @Nullable AbstractRemoteActionCache cache,
+      @Nullable AtomicLogger cacheLogger,
       @Nullable GrpcRemoteExecutor executor,
       RemoteRetrier retrier,
       DigestUtil digestUtil,
@@ -58,6 +61,7 @@ final class RemoteActionContextProvider extends ActionContextProvider {
     this.executor = executor;
     this.cache = cache;
     this.retrier = retrier;
+    this.cacheLogger = cacheLogger;
     this.digestUtil = digestUtil;
     this.logDir = logDir;
   }
@@ -76,6 +80,7 @@ final class RemoteActionContextProvider extends ActionContextProvider {
               env.getExecRoot(),
               remoteOptions,
               cache,
+              cacheLogger,
               buildRequestId,
               commandId,
               env.getReporter(),
@@ -93,6 +98,7 @@ final class RemoteActionContextProvider extends ActionContextProvider {
               buildRequestId,
               commandId,
               cache,
+              cacheLogger,
               executor,
               retrier,
               digestUtil,
@@ -148,5 +154,28 @@ final class RemoteActionContextProvider extends ActionContextProvider {
     if (executor != null) {
       executor.close();
     }
+    if (cacheLogger != null) {
+      try {
+        cacheLogger.close();
+      } catch (IOException ex) {
+        /* ignore */
+      }
+    }
+  }
+
+  public static String getLogIdentifier(boolean success, boolean mayBeCached, boolean wasExecutedLocally, boolean upload) {
+    if (mayBeCached && wasExecutedLocally && success) {
+      return String.format(
+          "%sPUT-ACTION",
+          upload ? "" : "SKIPPED-");
+    }
+    return String.format(
+          "%sEXEC-ACTION",
+          wasExecutedLocally ? "LOCAL-" : "");
+
+  }
+
+  public static String getLogMessage(String identifier, String actionKeyString, String progressMessage) {
+    return String.format("%s,%s,%s", identifier, actionKeyString, progressMessage);
   }
 }

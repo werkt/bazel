@@ -283,6 +283,7 @@ public class GrpcRemoteExecutionClientTest {
             "build-req-id",
             "command-id",
             remoteCache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             DIGEST_UTIL,

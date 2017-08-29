@@ -193,6 +193,7 @@ public class RemoteSpawnCacheTest {
             execRoot,
             options,
             remoteCache,
+            null,
             "build-req-id",
             "command-id",
             reporter,
@@ -301,6 +302,44 @@ public class RemoteSpawnCacheTest {
             eq(true));
     assertThat(progressUpdates)
         .containsExactly(Pair.of(ProgressStatus.CHECKING_CACHE, "remote-cache"));
+  }
+
+  @Test
+  public void logIdentifierTest() {
+    boolean[] trueFalse = {true, false};
+
+    for (boolean success : trueFalse) {
+      for (boolean mayBeCached : trueFalse) {
+        for (boolean isExecutedLocally : trueFalse) {
+          for (boolean upload : trueFalse) {
+            assertThat(RemoteActionContextProvider.getLogIdentifier(success, mayBeCached, isExecutedLocally, upload))
+                .isEqualTo(logIdentifierTestHelper(success, mayBeCached, isExecutedLocally, upload));
+          }
+        }
+      }
+    }
+  }
+
+  private String logIdentifierTestHelper(
+      boolean success, boolean mayBeCached, boolean isExecutedLocally, boolean canUpload) {
+    boolean shouldUpload = mayBeCached && isExecutedLocally && success;
+
+    if (shouldUpload && canUpload) {
+      return "PUT-ACTION";
+    }
+
+    if (shouldUpload && !canUpload) {
+      return "SKIPPED-PUT-ACTION";
+    }
+
+    if (!shouldUpload && isExecutedLocally) {
+      return "LOCAL-EXEC-ACTION";
+    }
+
+    if (!shouldUpload && !isExecutedLocally) {
+      return "EXEC-ACTION";
+    }
+    return "";
   }
 
   @Test

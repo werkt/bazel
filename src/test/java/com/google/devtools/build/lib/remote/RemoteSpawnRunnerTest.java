@@ -177,6 +177,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -239,7 +240,8 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
-            null,
+            /*remoteCacheLogger=*/ null,
+            /*executor=*/ null,
             retrier,
             digestUtil,
             logDir);
@@ -257,6 +259,13 @@ public class RemoteSpawnRunnerTest {
         ResourceSet.ZERO);
 
     SpawnExecutionContext policy = new FakeSpawnExecutionContext(spawn);
+    SpawnResult res =
+        new SpawnResult.Builder()
+            .setStatus(Status.SUCCESS)
+            .setExitCode(0)
+            .setRunnerName("test")
+            .build();
+    when(localRunner.exec(eq(spawn), eq(policy))).thenReturn(res);
 
     runner.exec(spawn, policy);
 
@@ -295,7 +304,8 @@ public class RemoteSpawnRunnerTest {
                 "build-req-id",
                 "command-id",
                 cache,
-                null,
+                /*remoteCacheLogger=*/ null,
+                /*executor=*/ null,
                 retrier,
                 digestUtil,
                 logDir));
@@ -356,7 +366,8 @@ public class RemoteSpawnRunnerTest {
                 "build-req-id",
                 "command-id",
                 cache,
-                null,
+                /*remoteCacheLogger=*/ null,
+                /*executor=*/ null,
                 retrier,
                 digestUtil,
                 logDir));
@@ -392,7 +403,8 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
-            null,
+            /*remoteCacheLogger=*/ null,
+            /*executor=*/ null,
             retrier,
             digestUtil,
             logDir);
@@ -452,7 +464,8 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
-            null,
+            /*remoteCacheLogger=*/ null,
+            /*executor=*/ null,
             retrier,
             digestUtil,
             logDir);
@@ -493,7 +506,8 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
-            null,
+            /*remoteCacheLogger=*/ null,
+            /*executor=*/ null,
             retrier,
             digestUtil,
             logDir);
@@ -531,6 +545,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -568,6 +583,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -610,6 +626,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -655,6 +672,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -695,6 +713,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -737,6 +756,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -783,6 +803,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -832,6 +853,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -879,6 +901,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -921,6 +944,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -960,6 +984,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
@@ -996,6 +1021,7 @@ public class RemoteSpawnRunnerTest {
             "build-req-id",
             "command-id",
             cache,
+            /*remoteCacheLogger=*/ null,
             executor,
             retrier,
             digestUtil,
