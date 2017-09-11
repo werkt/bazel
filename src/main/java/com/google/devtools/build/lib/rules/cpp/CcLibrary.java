@@ -144,6 +144,7 @@ public abstract class CcLibrary implements RuleConfiguredTargetFactory {
         new CcCompilationHelper(
                 ruleContext, semantics, featureConfiguration, ccToolchain, fdoSupport)
             .fromCommon(common, additionalCopts)
+            .fromLibrary()
             .addSources(common.getSources())
             .addPrivateHeaders(common.getPrivateHeaders())
             .addPublicHeaders(common.getHeaders())
@@ -159,6 +160,7 @@ public abstract class CcLibrary implements RuleConfiguredTargetFactory {
                 fdoSupport,
                 ruleContext.getConfiguration())
             .fromCommon(common)
+            .fromLibrary()
             .addLinkopts(common.getLinkopts())
             .enableCcNativeLibrariesProvider()
             .enableInterfaceSharedObjects()

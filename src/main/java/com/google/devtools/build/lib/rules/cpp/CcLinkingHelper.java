@@ -151,7 +151,8 @@ public final class CcLinkingHelper {
 
   private final List<Artifact> nonCodeLinkerInputs = new ArrayList<>();
   private final List<String> linkopts = new ArrayList<>();
-  private final List<TransitiveInfoCollection> deps = new ArrayList<>();
+  private final List<TransitiveInfoCollection> implementationDeps = new ArrayList<>();
+  private final List<TransitiveInfoCollection> interfaceDeps = new ArrayList<>();
   private final NestedSetBuilder<Artifact> linkstamps = NestedSetBuilder.stableOrder();
   private final List<Artifact> linkActionInputs = new ArrayList<>();
 
@@ -203,6 +204,13 @@ public final class CcLinkingHelper {
     this.configuration = Preconditions.checkNotNull(configuration);
     this.cppConfiguration =
         Preconditions.checkNotNull(ruleContext.getFragment(CppConfiguration.class));
+  }
+
+  /** Sets fields that only exist in cc_library rules. */
+  public CcLinkingHelper fromLibrary() {
+    this
+        .addImplementationDeps(ruleContext.getPrerequisites("impl_deps", Mode.TARGET));
+    return this;
   }
 
   /** Sets fields that overlap for cc_library and cc_binary rules. */
@@ -264,12 +272,39 @@ public final class CcLinkingHelper {
   }
 
   /**
+   * Similar to @{link addDeps}, but adds the given targets as implementation dependencies.
+   * Implementation dependencies are required to actually build a target, but are not required to
+   * build the target's interface, e.g. header module. Thus, implementation dependencies are always
+   * a superset of interface dependencies. Whatever is required to build the interface is also
+   * required to build the implementation.
+   */
+  public CcLinkingHelper addImplementationDeps(Iterable<? extends TransitiveInfoCollection> deps) {
+    for (TransitiveInfoCollection dep : deps) {
+      this.implementationDeps.add(dep);
+    }
+    return this;
+  }
+
+  /**
+   * Similar to @{link addDeps}, but adds the given targets as interface dependencies. Interface
+   * dependencies are required to actually build a target's interface, but are not required to build
+   * the target itself.
+   */
+  public CcLinkingHelper addInterfaceDeps(Iterable<? extends TransitiveInfoCollection> deps) {
+    for (TransitiveInfoCollection dep : deps) {
+      this.interfaceDeps.add(dep);
+    }
+    return this;
+  }
+
+  /**
    * Adds the given targets as dependencies - this can include explicit dependencies on other rules
    * (like from a "deps" attribute) and also implicit dependencies on runtime libraries.
    */
   public CcLinkingHelper addDeps(Iterable<? extends TransitiveInfoCollection> deps) {
     for (TransitiveInfoCollection dep : deps) {
-      this.deps.add(dep);
+      this.implementationDeps.add(dep);
+      this.interfaceDeps.add(dep);
     }
     return this;
   }
@@ -441,7 +476,7 @@ public final class CcLinkingHelper {
 
     if (checkDepsGenerateCpp) {
       for (LanguageDependentFragment dep :
-          AnalysisUtils.getProviders(deps, LanguageDependentFragment.class)) {
+          AnalysisUtils.getProviders(implementationDeps, LanguageDependentFragment.class)) {
         LanguageDependentFragment.Checker.depSupportsLanguage(
             ruleContext, dep, CppRuleClasses.LANGUAGE, "deps");
       }
@@ -624,8 +659,8 @@ public final class CcLinkingHelper {
         new Runfiles.Builder(
             ruleContext.getWorkspaceName(),
             ruleContext.getConfiguration().legacyExternalRunfiles());
-    builder.addTargets(deps, RunfilesProvider.DEFAULT_RUNFILES);
-    builder.addTargets(deps, CcRunfiles.runfilesFunction(linkingStatically));
+    builder.addTargets(implementationDeps, RunfilesProvider.DEFAULT_RUNFILES);
+    builder.addTargets(implementationDeps, CcRunfiles.runfilesFunction(linkingStatically));
     // Add the shared libraries to the runfiles.
     builder.addArtifacts(ccLinkingOutputs.getLibrariesForRunfiles(linkingStatically));
     return builder.build();
@@ -641,7 +676,7 @@ public final class CcLinkingHelper {
           CcLinkParams.Builder builder, boolean linkingStatically, boolean linkShared) {
         builder.addLinkstamps(linkstamps.build(), ccCompilationContext);
         builder.addTransitiveTargets(
-            deps, CcLinkParamsStore.TO_LINK_PARAMS, CcSpecificLinkParamsProvider.TO_LINK_PARAMS);
+            implementationDeps, CcLinkParamsStore.TO_LINK_PARAMS, CcSpecificLinkParamsProvider.TO_LINK_PARAMS);
         if (!neverlink) {
           builder.addLibraries(
               ccLinkingOutputs.getPreferredLibraries(
@@ -663,7 +698,7 @@ public final class CcLinkingHelper {
     NestedSetBuilder<LinkerInput> result = NestedSetBuilder.linkOrder();
     result.addAll(ccLinkingOutputs.getDynamicLibrariesForLinking());
     for (CcNativeLibraryProvider dep :
-        AnalysisUtils.getProviders(deps, CcNativeLibraryProvider.class)) {
+        AnalysisUtils.getProviders(implementationDeps, CcNativeLibraryProvider.class)) {
       result.addTransitive(dep.getTransitiveCcNativeLibraries());
     }
 
@@ -678,7 +713,7 @@ public final class CcLinkingHelper {
     }
 
     NestedSetBuilder<Artifact> builder = NestedSetBuilder.stableOrder();
-    for (CcLinkingInfo dep : AnalysisUtils.getProviders(deps, CcLinkingInfo.PROVIDER)) {
+    for (CcLinkingInfo dep : AnalysisUtils.getProviders(implementationDeps, CcLinkingInfo.PROVIDER)) {
       CcExecutionDynamicLibraries ccExecutionDynamicLibraries =
           dep.getCcExecutionDynamicLibraries();
       if (ccExecutionDynamicLibraries != null) {

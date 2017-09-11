@@ -208,7 +208,8 @@ public final class CcCompilationHelper {
   private ImmutableList<String> copts = ImmutableList.of();
   private CoptsFilter coptsFilter = CoptsFilter.alwaysPasses();
   private final Set<String> defines = new LinkedHashSet<>();
-  private final List<TransitiveInfoCollection> deps = new ArrayList<>();
+  private final List<TransitiveInfoCollection> implementationDeps = new ArrayList<>();
+  private final List<TransitiveInfoCollection> interfaceDeps = new ArrayList<>();
   private final List<CcCompilationContext> ccCompilationContexts = new ArrayList<>();
   private final List<PathFragment> looseIncludeDirs = new ArrayList<>();
   private final List<PathFragment> systemIncludeDirs = new ArrayList<>();
@@ -235,6 +236,7 @@ public final class CcCompilationHelper {
 
   // TODO(plf): Pull out of class.
   private CcCompilationContext ccCompilationContext;
+  private CcCompilationContext interfaceCompilationContext;
 
   /**
    * Creates a CcCompilationHelper.
@@ -328,6 +330,12 @@ public final class CcCompilationHelper {
     addSystemIncludeDirs(common.getSystemIncludeDirs());
     setCoptsFilter(common.getCoptsFilter());
     setHeadersCheckingMode(semantics.determineHeadersCheckingMode(ruleContext));
+    return this;
+  }
+
+  /** Sets fields that only exist in cc_library rules. */
+  public CcCompilationHelper fromLibrary() {
+    addImplementationDeps(ruleContext.getPrerequisites("impl_deps", Mode.TARGET));
     return this;
   }
 
@@ -563,12 +571,39 @@ public final class CcCompilationHelper {
   }
 
   /**
+   * Similar to @{link addDeps}, but adds the given targets as implementation dependencies.
+   * Implementation dependencies are required to actually build a target, but are not required to
+   * build the target's interface, e.g. header module. Thus, implementation dependencies are always
+   * a superset of interface dependencies. Whatever is required to build the interface is also
+   * required to build the implementation.
+   */
+  public CcCompilationHelper addImplementationDeps(Iterable<? extends TransitiveInfoCollection> deps) {
+    for (TransitiveInfoCollection dep : deps) {
+      this.implementationDeps.add(dep);
+    }
+    return this;
+  }
+
+  /**
+   * Similar to @{link addDeps}, but adds the given targets as interface dependencies. Interface
+   * dependencies are required to actually build a target's interface, but are not required to build
+   * the target itself.
+   */
+  public CcCompilationHelper addInterfaceDeps(Iterable<? extends TransitiveInfoCollection> deps) {
+    for (TransitiveInfoCollection dep : deps) {
+      this.interfaceDeps.add(dep);
+    }
+    return this;
+  }
+
+  /**
    * Adds the given targets as dependencies - this can include explicit dependencies on other rules
    * (like from a "deps" attribute) and also implicit dependencies on runtime libraries.
    */
   public CcCompilationHelper addDeps(Iterable<? extends TransitiveInfoCollection> deps) {
     for (TransitiveInfoCollection dep : deps) {
-      this.deps.add(dep);
+      this.implementationDeps.add(dep);
+      this.interfaceDeps.add(dep);
     }
     return this;
   }
@@ -720,7 +755,7 @@ public final class CcCompilationHelper {
   public CompilationInfo compile() throws RuleErrorException {
     if (checkDepsGenerateCpp) {
       for (LanguageDependentFragment dep :
-          AnalysisUtils.getProviders(deps, LanguageDependentFragment.class)) {
+          AnalysisUtils.getProviders(implementationDeps, LanguageDependentFragment.class)) {
         LanguageDependentFragment.Checker.depSupportsLanguage(
             ruleContext, dep, CppRuleClasses.LANGUAGE, "deps");
       }
@@ -730,7 +765,16 @@ public final class CcCompilationHelper {
       ruleContext.ruleError("Either PIC or no PIC actions have to be created.");
     }
 
-    ccCompilationContext = initializeCcCompilationContext();
+    // If we actually have different interface deps, we need a separate compilation context
+    // for the interface. Otherwise, we can just re-use the normal cppCompilationContext.
+    // As implemenationDeps is a superset of interfaceDeps, comparing the size proves equality.
+    if (implementationDeps.size() != interfaceDeps.size()) {
+      interfaceCompilationContext = initializeCcCompilationContext(/*forInterface=*/ true, /*createModuleMapActions=*/ true);
+      ccCompilationContext = initializeCcCompilationContext(/*forInterface=*/ false, /*createModuleMapActions=*/ false);
+    } else {
+      ccCompilationContext = initializeCcCompilationContext(/*forInterface=*/ false, /*createModuleMapActions=*/ true);
+      interfaceCompilationContext = ccCompilationContext;
+    }
 
     boolean compileHeaderModules = featureConfiguration.isEnabled(CppRuleClasses.HEADER_MODULES);
     Preconditions.checkState(
@@ -752,7 +796,7 @@ public final class CcCompilationHelper {
     DwoArtifactsCollector dwoArtifacts =
         DwoArtifactsCollector.transitiveCollector(
             ccOutputs,
-            deps,
+            implementationDeps,
             /*generateDwo=*/ false,
             /*ltoBackendArtifactsUsePic=*/ false,
             /*ltoBackendArtifacts=*/ ImmutableList.of());
@@ -767,7 +811,10 @@ public final class CcCompilationHelper {
                 collectTransitiveLipoInfo(ccOutputs));
     CcCompilationInfo.Builder ccCompilationInfoBuilder = CcCompilationInfo.Builder.create();
     ccCompilationInfoBuilder.setCcCompilationContext(ccCompilationContext);
+    CcCompilationInfo.Builder interfaceCompilationInfoBuilder = CcCompilationInfo.Builder.create();
+    interfaceCompilationInfoBuilder.setCcCompilationContext(interfaceCompilationContext);
     providers.put(ccCompilationInfoBuilder.build());
+    providers.put(interfaceCompilationInfoBuilder.build());
 
     Map<String, NestedSet<Artifact>> outputGroups = new TreeMap<>();
     outputGroups.put(OutputGroupInfo.TEMP_FILES, getTemps(ccOutputs));
@@ -925,7 +972,7 @@ public final class CcCompilationHelper {
    *
    * <p>TODO(plf): Try to pull out CcCompilationContext building out of this class.
    */
-  public CcCompilationContext initializeCcCompilationContext() {
+  public CcCompilationContext initializeCcCompilationContext(boolean forInterface, boolean createModuleMapActions) {
     CcCompilationContext.Builder ccCompilationContextBuilder =
         new CcCompilationContext.Builder(ruleContext);
 
@@ -957,7 +1004,7 @@ public final class CcCompilationHelper {
 
     if (useDeps) {
       ccCompilationContextBuilder.mergeDependentCcCompilationContexts(
-          CcCompilationInfo.getCcCompilationContexts(deps));
+          CcCompilationInfo.getCcCompilationContexts(forInterface ? interfaceDeps : implementationDeps));
       ccCompilationContextBuilder.mergeDependentCcCompilationContexts(ccCompilationContexts);
     }
     CppHelper.mergeToolchainDependentCcCompilationContext(
@@ -1006,49 +1053,63 @@ public final class CcCompilationHelper {
       ccCompilationContextBuilder.setPropagateCppModuleMapAsActionInput(
           propagateModuleMapToCompileAction);
       ccCompilationContextBuilder.setCppModuleMap(cppModuleMap);
-      // There are different modes for module compilation:
-      // 1. We create the module map and compile the module so that libraries depending on us can
-      //    use the resulting module artifacts in their compilation (compiled is true).
-      // 2. We create the module map so that libraries depending on us will include the headers
-      //    textually (compiled is false).
-      boolean compiled =
-          featureConfiguration.isEnabled(CppRuleClasses.HEADER_MODULES)
-              || featureConfiguration.isEnabled(CppRuleClasses.COMPILE_ALL_MODULES);
-      Iterable<CppModuleMap> dependentModuleMaps = collectModuleMaps();
+      if (createModuleMapActions) {
+        // TODO(djasper): The separation of interface and implementation dependencies doesn't work
+        // in conjunction with layering_check yet (and never has). In the long run to properly
+        // support layering_check together with interface/implementation dependencies, we need to
+        // write two modules to the module map, one with the headers and interface dependencies, the
+        // other with no headers, the implementation dependencies and an extra dependency on the
+        // first module. This division of two modules then needs to be properly used by the CppModel
+        // creating the CppCompileActions.
 
-      if (generateModuleMap) {
-        Optional<Artifact> umbrellaHeader = cppModuleMap.getUmbrellaHeader();
-        if (umbrellaHeader.isPresent()) {
+        // There are different modes for module compilation:
+        // 1. We create the module map and compile the module so that libraries depending on us can
+        //    use the resulting module artifacts in their compilation (compiled is true).
+        // 2. We create the module map so that libraries depending on us will include the headers
+        //    textually (compiled is false).
+        boolean compiled =
+            featureConfiguration.isEnabled(CppRuleClasses.HEADER_MODULES)
+                || featureConfiguration.isEnabled(CppRuleClasses.COMPILE_ALL_MODULES);
+        Iterable<CppModuleMap> dependentModuleMaps = collectModuleMaps();
+
+        if (generateModuleMap) {
+          Optional<Artifact> umbrellaHeader = cppModuleMap.getUmbrellaHeader();
+          if (umbrellaHeader.isPresent()) {
+            ruleContext.registerAction(
+                createUmbrellaHeaderAction(umbrellaHeader.get(), publicHeaders));
+          }
+
           ruleContext.registerAction(
-              createUmbrellaHeaderAction(umbrellaHeader.get(), publicHeaders));
+              createModuleMapAction(cppModuleMap, publicHeaders, dependentModuleMaps, compiled));
         }
-
-        ruleContext.registerAction(
-            createModuleMapAction(cppModuleMap, publicHeaders, dependentModuleMaps, compiled));
-      }
-      if (getGeneratesPicHeaderModule()) {
-        ccCompilationContextBuilder.setPicHeaderModule(
-            getPicHeaderModule(cppModuleMap.getArtifact()));
-      }
-      if (getGeneratesNoPicHeaderModule()) {
-        ccCompilationContextBuilder.setHeaderModule(getHeaderModule(cppModuleMap.getArtifact()));
-      }
-      if (!compiled
-          && featureConfiguration.isEnabled(CppRuleClasses.PARSE_HEADERS)
-          && featureConfiguration.isEnabled(CppRuleClasses.USE_HEADER_MODULES)
-          && cppConfiguration.getParseHeadersVerifiesModules()) {
-        // Here, we are creating a compiled module to verify that headers are self-contained and
-        // modules ready, but we don't use the corresponding module map or compiled file anywhere
-        // else.
-        CppModuleMap verificationMap =
-            CppHelper.createDefaultCppModuleMap(ruleContext, /*suffix=*/ ".verify");
-        ruleContext.registerAction(
-            createModuleMapAction(
-                verificationMap, publicHeaders, dependentModuleMaps, /*compiledModule=*/ true));
-        ccCompilationContextBuilder.setVerificationModuleMap(verificationMap);
+        if (getGeneratesPicHeaderModule()) {
+          ccCompilationContextBuilder.setPicHeaderModule(
+              getPicHeaderModule(cppModuleMap.getArtifact()));
+        }
+        if (getGeneratesNoPicHeaderModule()) {
+          ccCompilationContextBuilder.setHeaderModule(getHeaderModule(cppModuleMap.getArtifact()));
+        }
+        if (!compiled
+            && featureConfiguration.isEnabled(CppRuleClasses.PARSE_HEADERS)
+            && featureConfiguration.isEnabled(CppRuleClasses.USE_HEADER_MODULES)
+            && cppConfiguration.getParseHeadersVerifiesModules()) {
+          // Here, we are creating a compiled module to verify that headers are self-contained and
+          // modules ready, but we don't use the corresponding module map or compiled file anywhere
+          // else.
+          CppModuleMap verificationMap =
+              CppHelper.createDefaultCppModuleMap(ruleContext, /*suffix=*/ ".verify");
+          ruleContext.registerAction(
+              createModuleMapAction(
+                  verificationMap, publicHeaders, dependentModuleMaps, /*compiledModule=*/ true));
+          ccCompilationContextBuilder.setVerificationModuleMap(verificationMap);
+        }
       }
     }
-    ccCompilationContextBuilder.setPurpose(purpose);
+    String contextPurpose = forInterface ? "cpp_interface_prerequisites" : "cpp_compilation_prerequisites";
+    if (purpose != null) {
+      contextPurpose = purpose + "-" + contextPurpose;
+    }
+    ccCompilationContextBuilder.setPurpose(contextPurpose);
 
     semantics.setupCcCompilationContext(ruleContext, ccCompilationContextBuilder);
     return ccCompilationContextBuilder.build();
@@ -1128,7 +1189,7 @@ public final class CcCompilationHelper {
   private Iterable<CppModuleMap> collectModuleMaps() {
     // Cpp module maps may be null for some rules. We filter the nulls out at the end.
     List<CppModuleMap> result =
-        deps.stream().map(CPP_DEPS_TO_MODULES).collect(toCollection(ArrayList::new));
+        interfaceDeps.stream().map(CPP_DEPS_TO_MODULES).collect(toCollection(ArrayList::new));
     if (ruleContext.getRule().getAttributeDefinition(":stl") != null) {
       CcCompilationInfo stl =
           ruleContext.getPrerequisite(":stl", Mode.TARGET, CcCompilationInfo.PROVIDER);
@@ -1162,7 +1223,7 @@ public final class CcCompilationHelper {
     }
 
     for (TransitiveLipoInfoProvider dep :
-        AnalysisUtils.getProviders(deps, TransitiveLipoInfoProvider.class)) {
+        AnalysisUtils.getProviders(implementationDeps, TransitiveLipoInfoProvider.class)) {
       scannableBuilder.addTransitive(dep.getTransitiveIncludeScannables());
     }
 
@@ -1308,17 +1369,17 @@ public final class CcCompilationHelper {
       Label moduleMapLabel =
           Label.parseAbsoluteUnchecked(ccCompilationContext.getCppModuleMap().getName());
       Collection<Artifact> modules =
-          createModuleAction(result, ccCompilationContext.getCppModuleMap());
+          createModuleAction(result, ccCompilationContext.getCppModuleMap(), /*forInterface=*/ true);
       if (featureConfiguration.isEnabled(CppRuleClasses.HEADER_MODULE_CODEGEN)) {
         for (Artifact module : modules) {
           // TODO(djasper): Investigate whether we need to use a label separate from that of the
           // module map. It is used for per-file-copts.
-          createModuleCodegenAction(result, moduleMapLabel, module);
+          createModuleCodegenAction(result, moduleMapLabel, module, /*forInterface=*/ true);
         }
       }
     } else if (ccCompilationContext.getVerificationModuleMap() != null) {
       Collection<Artifact> modules =
-          createModuleAction(result, ccCompilationContext.getVerificationModuleMap());
+          createModuleAction(result, ccCompilationContext.getVerificationModuleMap(), /*forInterface=*/ true);
       for (Artifact module : modules) {
         result.addHeaderTokenFile(module);
       }
@@ -1338,7 +1399,7 @@ public final class CcCompilationHelper {
     for (CppSource source : compilationUnitSources) {
       Artifact sourceArtifact = source.getSource();
       Label sourceLabel = source.getLabel();
-      CppCompileActionBuilder builder = initializeCompileAction(sourceArtifact);
+      CppCompileActionBuilder builder = initializeCompileAction(sourceArtifact, /*forInterface=*/ false);
 
       builder
           .setSemantics(semantics)
@@ -1567,8 +1628,8 @@ public final class CcCompilationHelper {
    * Returns a {@code CppCompileActionBuilder} with the common fields for a C++ compile action being
    * initialized.
    */
-  private CppCompileActionBuilder initializeCompileAction(Artifact sourceArtifact) {
-    CppCompileActionBuilder builder = createCompileActionBuilder(sourceArtifact);
+  private CppCompileActionBuilder initializeCompileAction(Artifact sourceArtifact, boolean forInterface) {
+    CppCompileActionBuilder builder = createCompileActionBuilder(sourceArtifact, forInterface);
     builder.setFeatureConfiguration(featureConfiguration);
 
     return builder;
@@ -1578,17 +1639,17 @@ public final class CcCompilationHelper {
    * Creates a basic cpp compile action builder for source file. Configures options, crosstool
    * inputs, output and dotd file names, {@code CcCompilationContext} and copts.
    */
-  private CppCompileActionBuilder createCompileActionBuilder(Artifact source) {
+  private CppCompileActionBuilder createCompileActionBuilder(Artifact source, boolean forInterface) {
     CppCompileActionBuilder builder =
         new CppCompileActionBuilder(ruleContext, ccToolchain, configuration);
     builder.setSourceFile(source);
-    builder.setCcCompilationContext(ccCompilationContext);
+    builder.setCcCompilationContext(forInterface ? interfaceCompilationContext : ccCompilationContext);
     builder.setCoptsFilter(coptsFilter);
     return builder;
   }
 
   private void createModuleCodegenAction(
-      CcCompilationOutputs.Builder result, Label sourceLabel, Artifact module)
+      CcCompilationOutputs.Builder result, Label sourceLabel, Artifact module, boolean forInterface)
       throws RuleErrorException {
     if (fake) {
       // We can't currently foresee a situation where we'd want nocompile tests for module codegen.
@@ -1603,7 +1664,7 @@ public final class CcCompilationHelper {
     // TODO(djasper): Make this less hacky after refactoring how the PIC/noPIC actions are created.
     boolean pic = module.getFilename().contains(".pic.");
 
-    CppCompileActionBuilder builder = initializeCompileAction(module);
+    CppCompileActionBuilder builder = initializeCompileAction(module, forInterface);
     builder.setSemantics(semantics);
     builder.setPicMode(pic);
     builder.setOutputs(
@@ -1699,10 +1760,10 @@ public final class CcCompilationHelper {
   }
 
   private Collection<Artifact> createModuleAction(
-      CcCompilationOutputs.Builder result, CppModuleMap cppModuleMap) throws RuleErrorException {
+      CcCompilationOutputs.Builder result, CppModuleMap cppModuleMap, boolean forInterface) throws RuleErrorException {
     AnalysisEnvironment env = ruleContext.getAnalysisEnvironment();
     Artifact moduleMapArtifact = cppModuleMap.getArtifact();
-    CppCompileActionBuilder builder = initializeCompileAction(moduleMapArtifact);
+    CppCompileActionBuilder builder = initializeCompileAction(moduleMapArtifact, forInterface);
 
     builder.setSemantics(semantics);
 

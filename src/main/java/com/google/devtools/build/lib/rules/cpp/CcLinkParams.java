@@ -14,6 +14,8 @@
 
 package com.google.devtools.build.lib.rules.cpp;
 
+import static com.google.devtools.build.lib.packages.BuildType.LABEL_LIST;
+
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -380,8 +382,13 @@ public final class CcLinkParams {
 
     /** Processes typical dependencies of a C/C++ library. */
     public Builder addCcLibrary(RuleContext context) {
+      Iterable<? extends TransitiveInfoCollection> targets =
+          context.getPrerequisites("deps", Mode.TARGET);
+      if (context.attributes().has("impl_deps", LABEL_LIST)) {
+        targets = Iterables.concat(targets, context.getPrerequisites("impl_deps", Mode.TARGET));
+      }
       addTransitiveTargets(
-          context.getPrerequisites("deps", Mode.TARGET),
+          targets,
           CcLinkParamsStore.TO_LINK_PARAMS,
           CcSpecificLinkParamsProvider.TO_LINK_PARAMS);
       return this;

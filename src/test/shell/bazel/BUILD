@@ -569,6 +569,15 @@ sh_test(
     tags = ["no_windows"],
 )
 
+sh_test(
+    name = "implementation_dependencies_test",
+    size = "small",
+    srcs = ["implementation_dependencies_test.sh"],
+    data = [
+        ":test-deps",
+    ],
+)
+
 test_suite(
     name = "all_tests",
     visibility = ["//visibility:public"],
