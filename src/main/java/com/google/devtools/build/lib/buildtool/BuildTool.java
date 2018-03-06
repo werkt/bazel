@@ -76,10 +76,14 @@ import com.google.devtools.build.lib.runtime.BlazeRuntime;
 import com.google.devtools.build.lib.runtime.CommandEnvironment;
 import com.google.devtools.build.lib.skyframe.SkyframeExecutorWrappingWalkableGraph;
 import com.google.devtools.build.lib.util.AbruptExitException;
+import com.google.devtools.build.lib.util.CppCompileCommands;
 import com.google.devtools.build.lib.util.ExitCode;
 import com.google.devtools.build.lib.util.RegexFilter;
 import com.google.devtools.build.skyframe.WalkableGraph;
 import com.google.devtools.common.options.OptionsParsingException;
+import com.google.devtools.build.lib.vfs.FileSystemUtils;
+import com.google.devtools.build.lib.vfs.Path;
+
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
@@ -160,6 +164,9 @@ public final class BuildTool {
           ConfiguredTargetQueryCommandLineException {
     validateOptions(request);
     BuildOptions buildOptions = runtime.createBuildOptions(request);
+
+    //should we log compile commands
+    CppCompileCommands.getInstance().setLogging(request.getBuildOptions().compileCommandsPath != null);
     // Sync the package manager before sending the BuildStartingEvent in runLoadingPhase()
     env.setupPackageCache(request, DefaultsPackage.getDefaultsPackageContent(buildOptions));
 
@@ -324,6 +331,18 @@ public final class BuildTool {
       if (executionTool != null) {
         executionTool.shutdown();
       }
+
+      // save out any compile commands and remove any content we have saved.
+      if (request.getBuildOptions().compileCommandsPath != null) {
+        Path path = env.getWorkspace().getRelative(request.getBuildOptions().compileCommandsPath);
+        try {
+          CppCompileCommands.getInstance().save(env.getReporter(), path);
+        } catch (IOException e) {
+          catastrophe = true;
+          throw new BuildFailedException(e.getMessage());
+        }
+      }
+
       if (!catastrophe) {
         // Delete dirty nodes to ensure that they do not accumulate indefinitely.
         long versionWindow = request.getViewOptions().versionWindowForDirtyNodeGc;

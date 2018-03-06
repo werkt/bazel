@@ -313,7 +313,7 @@ java_import(
 
 java_import(
     name = "gson",
-    jars = ["gson/gson-2.2.4.jar"],
+    jars = ["gson/gson-2.8.2.jar"],
 )
 
 java_import(

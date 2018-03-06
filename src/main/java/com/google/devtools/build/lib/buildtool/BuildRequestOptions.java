@@ -413,6 +413,17 @@ public class BuildRequestOptions extends OptionsBase {
   )
   public boolean keepStateAfterBuild;
 
+  @Option(
+    name = "compile_commands",
+    defaultValue = "null",
+    documentationCategory = OptionDocumentationCategory.OUTPUT_PARAMETERS,
+    effectTags = {OptionEffectTag.AFFECTS_OUTPUTS},
+    converter = OptionsUtils.PathFragmentConverter.class,
+    category = "utils",
+    help = "Add any compiled command to this json formatted file."
+  )
+  public PathFragment compileCommandsPath;
+
   /** Converter for jobs: [0, MAX_JOBS] or "auto". */
   public static class JobsConverter extends RangeConverter {
     /**

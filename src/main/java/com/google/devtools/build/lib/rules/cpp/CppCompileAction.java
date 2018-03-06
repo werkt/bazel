@@ -59,6 +59,7 @@ import com.google.devtools.build.lib.rules.cpp.CppCompileActionContext.Reply;
 import com.google.devtools.build.lib.rules.cpp.CppHelper.PregreppedHeader;
 import com.google.devtools.build.lib.skyframe.serialization.autocodec.AutoCodec;
 import com.google.devtools.build.lib.skyframe.serialization.autocodec.AutoCodec.VisibleForSerialization;
+import com.google.devtools.build.lib.util.CppCompileCommands;
 import com.google.devtools.build.lib.util.DependencySet;
 import com.google.devtools.build.lib.util.Fingerprint;
 import com.google.devtools.build.lib.util.ShellEscaper;
@@ -1151,6 +1152,16 @@ public class CppCompileAction extends AbstractAction
     actionKeyContext.addNestedSetToFingerprint(fp, prunableInputs);
   }
 
+  private void addCompileCommands(String execRoot){
+    CppCompileCommands instance = CppCompileCommands.getInstance();
+    if (instance.logging()){
+      String file = getSourceFile().getExecPathString();
+      String directory = execRoot;
+      String command = String.join(" ", this.getArgv());
+      instance.addAction(directory, command, file);
+    }
+  }
+
   @Override
   @ThreadCompatible
   public ActionResult execute(ActionExecutionContext actionExecutionContext)
@@ -1169,6 +1180,9 @@ public class CppCompileAction extends AbstractAction
     }
 
     List<SpawnResult> spawnResults;
+    // Update compile commands list if needed
+    this.addCompileCommands(actionExecutionContext.getExecRoot().toString());
+
     try {
       CppCompileActionResult cppCompileActionResult =
           actionExecutionContext
