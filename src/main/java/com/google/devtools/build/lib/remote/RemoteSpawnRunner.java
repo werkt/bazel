@@ -55,6 +55,7 @@ import com.google.protobuf.TextFormat;
 import com.google.protobuf.TextFormat.ParseException;
 import io.grpc.Context;
 import io.grpc.Status.Code;
+import io.grpc.StatusRuntimeException;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -83,6 +84,7 @@ class RemoteSpawnRunner implements SpawnRunner {
   @Nullable private final GrpcRemoteExecutor remoteExecutor;
   private final String buildRequestId;
   private final String commandId;
+  private final RemoteRetrier retrier;
   private final DigestUtil digestUtil;
   private final Path logDir;
 
@@ -99,6 +101,7 @@ class RemoteSpawnRunner implements SpawnRunner {
       String commandId,
       @Nullable AbstractRemoteActionCache remoteCache,
       @Nullable GrpcRemoteExecutor remoteExecutor,
+      RemoteRetrier retrier,
       DigestUtil digestUtil,
       Path logDir) {
     this.execRoot = execRoot;
@@ -110,6 +113,7 @@ class RemoteSpawnRunner implements SpawnRunner {
     this.cmdlineReporter = cmdlineReporter;
     this.buildRequestId = buildRequestId;
     this.commandId = commandId;
+    this.retrier = retrier;
     this.digestUtil = digestUtil;
     this.logDir = logDir;
   }
@@ -184,34 +188,32 @@ class RemoteSpawnRunner implements SpawnRunner {
         return execLocally(spawn, policy, inputMap, uploadLocalResults, remoteCache, actionKey);
       }
 
+      boolean skipCacheLookup = !acceptCachedResult;
+      ExecuteRequest request = ExecuteRequest.newBuilder()
+          .setInstanceName(options.remoteInstanceName)
+          .setAction(action)
+          .setSkipCacheLookup(!acceptCachedResult)
+          .build();
       try {
-        // Upload the command and all the inputs into the remote cache.
-        remoteCache.ensureInputsPresent(repository, execRoot, inputRoot, command);
-      } catch (IOException e) {
-        return execLocallyOrFail(spawn, policy, inputMap, actionKey, uploadLocalResults, e);
-      }
+        try {
+          return retrier.execute(() -> {
+            // Upload the command and all the inputs into the remote cache.
+            remoteCache.ensureInputsPresent(repository, execRoot, inputRoot, command);
 
-      final ActionResult result;
-      boolean remoteCacheHit = false;
-      try {
-        ExecuteRequest.Builder request =
-            ExecuteRequest.newBuilder()
-                .setInstanceName(options.remoteInstanceName)
-                .setAction(action)
-                .setSkipCacheLookup(!acceptCachedResult);
-        ExecuteResponse reply = remoteExecutor.executeRemotely(request.build());
-        maybeDownloadServerLogs(reply, actionKey);
-        result = reply.getResult();
-        remoteCacheHit = reply.getCachedResult();
-      } catch (IOException e) {
-        return execLocallyOrFail(spawn, policy, inputMap, actionKey, uploadLocalResults, e);
-      }
+            ExecuteResponse reply = remoteExecutor.executeRemotely(request);
+            maybeDownloadServerLogs(reply, actionKey);
 
-      try {
-        return downloadRemoteResults(result, policy.getFileOutErr())
-            .setRunnerName(remoteCacheHit ? "remote cache hit" : getName())
-            .setCacheHit(remoteCacheHit)
-            .build();
+            return downloadRemoteResults(reply.getResult(), policy.getFileOutErr())
+                .setRunnerName(reply.getCachedResult() ? "remote cache hit" : getName())
+                .setCacheHit(reply.getCachedResult())
+                .build();
+          });
+        } catch (RetryException e) {
+          if (e.getCause() instanceof IOException) {
+            throw (IOException) e.getCause();
+          }
+          throw e;
+        }
       } catch (IOException e) {
         return execLocallyOrFail(spawn, policy, inputMap, actionKey, uploadLocalResults, e);
       }
