@@ -241,7 +241,7 @@ public class GrpcRemoteExecutionClientTest {
         new RemoteRetrier(options, RemoteRetrier.RETRIABLE_GRPC_ERRORS, Retrier.ALLOW_ALL_CALLS);
     Channel channel = InProcessChannelBuilder.forName(fakeServerName).directExecutor().build();
     GrpcRemoteExecutor executor =
-        new GrpcRemoteExecutor(channel, null, options.remoteTimeout, retrier);
+        new GrpcRemoteExecutor(channel, null, options.remoteTimeout);
     CallCredentials creds =
         GoogleAuthUtils.newCallCredentials(Options.getDefaults(AuthAndTLSOptions.class));
     GrpcRemoteCache remoteCache =
@@ -257,6 +257,7 @@ public class GrpcRemoteExecutionClientTest {
             "command-id",
             remoteCache,
             executor,
+            retrier,
             DIGEST_UTIL,
             logDir);
     inputDigest = fakeFileCache.createScratchInput(simpleSpawn.getInputFiles().get(0), "xyz");

@@ -178,14 +178,13 @@ public final class RemoteModule extends BlazeModule {
             new GrpcRemoteExecutor(
                 ch,
                 GoogleAuthUtils.newCallCredentials(authAndTlsOptions),
-                remoteOptions.remoteTimeout,
-                retrier);
+                remoteOptions.remoteTimeout);
       } else {
         executor = null;
       }
 
       actionContextProvider =
-          new RemoteActionContextProvider(env, cache, executor, digestUtil, logDir);
+          new RemoteActionContextProvider(env, cache, executor, retrier, digestUtil, logDir);
     } catch (IOException e) {
       env.getReporter().handle(Event.error(e.getMessage()));
       env.getBlazeModuleEnvironment().exit(new AbruptExitException(ExitCode.COMMAND_LINE_ERROR));

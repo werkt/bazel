@@ -69,6 +69,8 @@ class RemoteRetrier extends Retrier {
           case UNAVAILABLE:
           case UNAUTHENTICATED:
           case RESOURCE_EXHAUSTED:
+
+          case FAILED_PRECONDITION:
             return true;
           default:
             return false;

@@ -197,16 +197,12 @@ public class GrpcRemoteCache extends AbstractRemoteActionCache {
 
   @Override
   protected void downloadBlob(Digest digest, Path dest) throws IOException, InterruptedException {
-    try {
-      retrier.execute(
-          () -> {
-            try (OutputStream stream = dest.getOutputStream()) {
-              readBlob(digest, stream);
-            }
-            return null;
-          });
-    } catch (RetryException e) {
-      if (RemoteRetrierUtils.causedByStatus(e, Status.Code.NOT_FOUND)) {
+    try (OutputStream stream = dest.getOutputStream()) {
+      if (digest.getSizeBytes() > 0) {
+        readBlob(digest, stream);
+      }
+    } catch (StatusRuntimeException e) {
+      if (e.getStatus().getCode() == Status.Code.NOT_FOUND) {
         throw new CacheNotFoundException(digest, digestUtil);
       }
       throw e;
@@ -219,14 +215,11 @@ public class GrpcRemoteCache extends AbstractRemoteActionCache {
       return new byte[0];
     }
     try {
-      return retrier.execute(
-          () -> {
-            ByteArrayOutputStream stream = new ByteArrayOutputStream((int) digest.getSizeBytes());
-            readBlob(digest, stream);
-            return stream.toByteArray();
-          });
-    } catch (RetryException e) {
-      if (RemoteRetrierUtils.causedByStatus(e, Status.Code.NOT_FOUND)) {
+      ByteArrayOutputStream stream = new ByteArrayOutputStream((int) digest.getSizeBytes());
+      readBlob(digest, stream);
+      return stream.toByteArray();
+    } catch (StatusRuntimeException e) {
+      if (e.getStatus().getCode() == Status.Code.NOT_FOUND) {
         throw new CacheNotFoundException(digest, digestUtil);
       }
       throw e;
@@ -355,16 +348,14 @@ public class GrpcRemoteCache extends AbstractRemoteActionCache {
   public ActionResult getCachedActionResult(ActionKey actionKey)
       throws IOException, InterruptedException {
     try {
-      return retrier.execute(
-          () ->
-              acBlockingStub()
-                  .getActionResult(
-                      GetActionResultRequest.newBuilder()
-                          .setInstanceName(options.remoteInstanceName)
-                          .setActionDigest(actionKey.getDigest())
-                          .build()));
-    } catch (RetryException e) {
-      if (RemoteRetrierUtils.causedByStatus(e, Status.Code.NOT_FOUND)) {
+      return acBlockingStub()
+          .getActionResult(
+              GetActionResultRequest.newBuilder()
+                  .setInstanceName(options.remoteInstanceName)
+                  .setActionDigest(actionKey.getDigest())
+                  .build());
+    } catch (StatusRuntimeException e) {
+      if (e.getStatus().getCode() == Status.Code.NOT_FOUND) {
         // Return null to indicate that it was a cache miss.
         return null;
       }
