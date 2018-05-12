@@ -175,23 +175,81 @@ public class GrpcRemoteCache extends AbstractRemoteActionCache {
     uploader.uploadBlobs(toUpload);
   }
 
+  class PositionalOutputStream extends OutputStream {
+    private final OutputStream delegate;
+    private transient long offset = 0;
+
+    PositionalOutputStream(OutputStream delegate) {
+      this.delegate = delegate;
+    }
+
+    public long getOffset() {
+      return offset;
+    }
+
+    @Override
+    public void write(byte[] b) throws IOException {
+      delegate.write(b);
+      offset += b.length;
+    }
+
+    @Override
+    public void write(byte[] b, int off, int len) throws IOException {
+      delegate.write(b, off, len);
+      offset += len;
+    }
+
+    @Override
+    public void write(int b) throws IOException {
+      delegate.write(b);
+      offset++;
+    }
+
+    @Override
+    public void close() throws IOException {
+      delegate.close();
+    }
+
+    @Override
+    public void flush() throws IOException {
+      delegate.flush();
+    }
+  }
+
   /**
    * This method can throw {@link StatusRuntimeException}, but the RemoteCache interface does not
    * allow throwing such an exception. Any caller must make sure to catch the
    * {@link StatusRuntimeException}. Note that the retrier implicitly catches it, so if this is used
    * in the context of {@link RemoteRetrier#execute}, that's perfectly safe.
    */
-  private void readBlob(Digest digest, OutputStream stream)
+  private void readBlob(Digest digest, PositionalOutputStream stream)
       throws IOException, StatusRuntimeException {
     String resourceName = "";
     if (!options.remoteInstanceName.isEmpty()) {
       resourceName += options.remoteInstanceName + "/";
     }
     resourceName += "blobs/" + digestUtil.toString(digest);
-    Iterator<ReadResponse> replies = bsBlockingStub()
-        .read(ReadRequest.newBuilder().setResourceName(resourceName).build());
-    while (replies.hasNext()) {
-      replies.next().getData().writeTo(stream);
+    boolean done = false;
+    while (!done) {
+      long offset = stream.getOffset();
+      try {
+        Iterator<ReadResponse> replies = bsBlockingStub()
+            .read(ReadRequest.newBuilder()
+                .setResourceName(resourceName)
+                .setReadOffset(offset)
+                .build());
+        while (replies.hasNext()) {
+          replies.next().getData().writeTo(stream);
+        }
+        done = true;
+      } catch (StatusRuntimeException e) {
+        if (e.getStatus().getCode() != Status.Code.DEADLINE_EXCEEDED
+            || offset == stream.getOffset()) {
+          throw e;
+        }
+        // if we are making progress, reinitiate the request at the new offset
+        offset = stream.getOffset();
+      }
     }
   }
 
@@ -202,12 +260,11 @@ public class GrpcRemoteCache extends AbstractRemoteActionCache {
         return;
       }
     }
-    try {
+
+    try (PositionalOutputStream stream = new PositionalOutputStream(dest.getOutputStream())) {
       retrier.execute(
           () -> {
-            try (OutputStream stream = dest.getOutputStream()) {
               readBlob(digest, stream);
-            }
             return null;
           });
     } catch (RetryException e) {
@@ -223,12 +280,12 @@ public class GrpcRemoteCache extends AbstractRemoteActionCache {
     if (digest.getSizeBytes() == 0) {
       return new byte[0];
     }
-    try {
+    ByteArrayOutputStream byteArrayStream = new ByteArrayOutputStream((int) digest.getSizeBytes());
+    try (PositionalOutputStream stream = new PositionalOutputStream(byteArrayStream)) {
       return retrier.execute(
           () -> {
-            ByteArrayOutputStream stream = new ByteArrayOutputStream((int) digest.getSizeBytes());
             readBlob(digest, stream);
-            return stream.toByteArray();
+            return byteArrayStream.toByteArray();
           });
     } catch (RetryException e) {
       if (RemoteRetrierUtils.causedByStatus(e, Status.Code.NOT_FOUND)) {
