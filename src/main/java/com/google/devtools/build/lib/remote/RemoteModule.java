@@ -191,7 +191,7 @@ public final class RemoteModule extends BlazeModule {
             new GrpcRemoteExecutor(
                 ch,
                 GoogleAuthUtils.newCallCredentials(authAndTlsOptions),
-                remoteOptions.remoteTimeout,
+                remoteOptions,
                 retrier);
       } else {
         executor = null;

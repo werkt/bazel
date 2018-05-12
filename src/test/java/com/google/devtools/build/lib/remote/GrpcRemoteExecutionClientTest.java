@@ -243,7 +243,7 @@ public class GrpcRemoteExecutionClientTest {
         new RemoteRetrier(options, RemoteRetrier.RETRIABLE_GRPC_ERRORS, Retrier.ALLOW_ALL_CALLS);
     Channel channel = InProcessChannelBuilder.forName(fakeServerName).directExecutor().build();
     GrpcRemoteExecutor executor =
-        new GrpcRemoteExecutor(channel, null, options.remoteTimeout, retrier);
+        new GrpcRemoteExecutor(channel, null, options, retrier);
     CallCredentials creds =
         GoogleAuthUtils.newCallCredentials(Options.getDefaults(AuthAndTLSOptions.class));
     GrpcRemoteCache remoteCache =
@@ -555,6 +555,10 @@ public class GrpcRemoteExecutionClientTest {
             .setState(Change.State.EXISTS)
             .setData(Any.pack(operationWithError))
             .build();
+    Change chDoesNotExist =
+        Change.newBuilder()
+            .setState(Change.State.DOES_NOT_EXIST)
+            .build();
     ExecuteResponse executeResponseWithError =
         ExecuteResponse.newBuilder()
             .setStatus(
@@ -609,6 +613,16 @@ public class GrpcRemoteExecutionClientTest {
                   (StreamObserver<ChangeBatch>) invocationOnMock.getArguments()[1];
               // Retry the watch call.
               responseObserver.onError(Status.UNAVAILABLE.asRuntimeException());
+              return null;
+            })
+        .doAnswer(
+            invocationOnMock -> {
+              @SuppressWarnings("unchecked")
+              StreamObserver<ChangeBatch> responseObserver =
+                  (StreamObserver<ChangeBatch>) invocationOnMock.getArguments()[1];
+              // Retry the execute+watch call.
+              responseObserver.onNext(
+                  ChangeBatch.newBuilder().addChanges(chDoesNotExist).build());
               return null;
             })
         .doAnswer(
@@ -717,10 +731,10 @@ public class GrpcRemoteExecutionClientTest {
     assertThat(result.isCacheHit()).isFalse();
     assertThat(outErr.outAsLatin1()).isEqualTo("stdout");
     assertThat(outErr.errAsLatin1()).isEqualTo("stderr");
-    Mockito.verify(mockExecutionImpl, Mockito.times(4))
+    Mockito.verify(mockExecutionImpl, Mockito.times(5))
         .execute(
             Mockito.<ExecuteRequest>anyObject(), Mockito.<StreamObserver<Operation>>anyObject());
-    Mockito.verify(mockWatcherImpl, Mockito.times(4))
+    Mockito.verify(mockWatcherImpl, Mockito.times(5))
         .watch(
             Mockito.<Request>anyObject(), Mockito.<StreamObserver<ChangeBatch>>anyObject());
     Mockito.verify(mockByteStreamImpl, Mockito.times(2))

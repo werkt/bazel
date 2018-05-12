@@ -37,6 +37,7 @@ import io.grpc.protobuf.StatusProto;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
 /** A remote work executor that uses gRPC for communicating the work, inputs and outputs. */
@@ -47,17 +48,23 @@ class GrpcRemoteExecutor {
   private final CallCredentials callCredentials;
   private final int callTimeoutSecs;
   private final RemoteRetrier retrier;
+  private final RemoteRetrier executeRetrier;
 
   public GrpcRemoteExecutor(
       Channel channel,
       @Nullable CallCredentials callCredentials,
-      int callTimeoutSecs,
+      RemoteOptions remoteOptions,
       RemoteRetrier retrier) {
+    int callTimeoutSecs = remoteOptions.remoteTimeout;
     Preconditions.checkArgument(callTimeoutSecs > 0, "callTimeoutSecs must be gt 0.");
     this.channel = channel;
     this.callCredentials = callCredentials;
     this.callTimeoutSecs = callTimeoutSecs;
     this.retrier = retrier;
+    executeRetrier = new RemoteRetrier(
+        remoteOptions,
+        (e) -> (e instanceof OperationNotFoundException) || retrier.isRetriable(e),
+        Retrier.ALLOW_ALL_CALLS);
   }
 
   private ExecutionBlockingStub execBlockingStub() {
@@ -99,6 +106,44 @@ class GrpcRemoteExecutor {
     return null;
   }
 
+  private ExecuteResponse handleChange(Change ch, String opName)
+      throws IOException, RemoteRetrier.PassThroughException {
+    switch (ch.getState()) {
+      case INITIAL_STATE_SKIPPED:
+        return null;
+      case ERROR:
+        try {
+          throw StatusProto.toStatusRuntimeException(
+              ch.getData().unpack(Status.class));
+        } catch (InvalidProtocolBufferException e) {
+          throw new IOException(e);
+        }
+      case DOES_NOT_EXIST:
+        throw new OperationNotFoundException(opName);
+      case EXISTS:
+        Operation o;
+        try {
+          o = ch.getData().unpack(Operation.class);
+        } catch (InvalidProtocolBufferException e) {
+          throw new IOException(e);
+        }
+        try {
+          ExecuteResponse r = getOperationResponse(o);
+          if (r != null) {
+            return r;
+          }
+        } catch (StatusRuntimeException e) {
+          // Pass through the Watch retry and retry the whole execute+watch call.
+          throw new RemoteRetrier.PassThroughException(e);
+        }
+        return null;
+      default:
+        // This can only happen if the enum gets unexpectedly extended.
+        throw new IOException(
+            String.format("Illegal change state: %s", ch.getState()));
+    }
+  }
+
   /* Execute has two components: the execute call and the watch call.
    * This is the simple flow without any errors:
    *
@@ -121,7 +166,7 @@ class GrpcRemoteExecutor {
       throws IOException, InterruptedException {
     // The only errors retried here are transient failures of the Action itself on the server, not
     // any gRPC errors that occurred during the call.
-    return retrier.execute(
+    return executeRetrier.execute(
         () -> {
           // Here all transient gRPC errors will be retried.
           Operation op = retrier.execute(() -> execBlockingStub().execute(request));
@@ -138,41 +183,9 @@ class GrpcRemoteExecutor {
                 while (replies.hasNext()) {
                   ChangeBatch cb = replies.next();
                   for (Change ch : cb.getChangesList()) {
-                    switch (ch.getState()) {
-                      case INITIAL_STATE_SKIPPED:
-                        continue;
-                      case ERROR:
-                        try {
-                          throw StatusProto.toStatusRuntimeException(
-                              ch.getData().unpack(Status.class));
-                        } catch (InvalidProtocolBufferException e) {
-                          throw new IOException(e);
-                        }
-                      case DOES_NOT_EXIST:
-                        // TODO(olaola): either make this retriable, or use a different exception.
-                        throw new IOException(
-                            String.format("Operation %s lost on the remote server.", op.getName()));
-                      case EXISTS:
-                        Operation o;
-                        try {
-                          o = ch.getData().unpack(Operation.class);
-                        } catch (InvalidProtocolBufferException e) {
-                          throw new IOException(e);
-                        }
-                        try {
-                          ExecuteResponse r = getOperationResponse(o);
-                          if (r != null) {
-                            return r;
-                          }
-                        } catch (StatusRuntimeException e) {
-                          // Pass through the Watch retry and retry the whole execute+watch call.
-                          throw new RemoteRetrier.PassThroughException(e);
-                        }
-                        continue;
-                      default:
-                        // This can only happen if the enum gets unexpectedly extended.
-                        throw new IOException(
-                            String.format("Illegal change state: %s", ch.getState()));
+                    ExecuteResponse r = handleChange(ch, op.getName());
+                    if (r != null) {
+                      return r;
                     }
                   }
                 }
