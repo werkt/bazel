@@ -60,6 +60,7 @@ public class ActionExecutionContext implements Closeable {
   private final ActionInputPrefetcher actionInputPrefetcher;
   private final ActionKeyContext actionKeyContext;
   private final MetadataHandler metadataHandler;
+  private final InjectionListener injectionListener;
   private final FileOutErr fileOutErr;
   private final ImmutableMap<String, String> clientEnv;
   private final ImmutableMap<Artifact, ImmutableList<FilesetOutputSymlink>> topLevelFilesets;
@@ -79,6 +80,7 @@ public class ActionExecutionContext implements Closeable {
       ActionInputPrefetcher actionInputPrefetcher,
       ActionKeyContext actionKeyContext,
       MetadataHandler metadataHandler,
+      InjectionListener injectionListener,
       FileOutErr fileOutErr,
       Map<String, String> clientEnv,
       ImmutableMap<Artifact, ImmutableList<FilesetOutputSymlink>> topLevelFilesets,
@@ -90,6 +92,7 @@ public class ActionExecutionContext implements Closeable {
     this.actionInputPrefetcher = actionInputPrefetcher;
     this.actionKeyContext = actionKeyContext;
     this.metadataHandler = metadataHandler;
+    this.injectionListener = injectionListener;
     this.fileOutErr = fileOutErr;
     this.clientEnv = ImmutableMap.copyOf(clientEnv);
     this.topLevelFilesets = topLevelFilesets;
@@ -109,6 +112,7 @@ public class ActionExecutionContext implements Closeable {
       ActionInputPrefetcher actionInputPrefetcher,
       ActionKeyContext actionKeyContext,
       MetadataHandler metadataHandler,
+      InjectionListener injectionListener,
       FileOutErr fileOutErr,
       Map<String, String> clientEnv,
       ImmutableMap<Artifact, ImmutableList<FilesetOutputSymlink>> topLevelFilesets,
@@ -121,6 +125,7 @@ public class ActionExecutionContext implements Closeable {
         actionInputPrefetcher,
         actionKeyContext,
         metadataHandler,
+        injectionListener,
         fileOutErr,
         clientEnv,
         topLevelFilesets,
@@ -136,6 +141,7 @@ public class ActionExecutionContext implements Closeable {
       ActionInputPrefetcher actionInputPrefetcher,
       ActionKeyContext actionKeyContext,
       MetadataHandler metadataHandler,
+      InjectionListener injectionListener,
       FileOutErr fileOutErr,
       Map<String, String> clientEnv,
       Environment env,
@@ -146,6 +152,7 @@ public class ActionExecutionContext implements Closeable {
         actionInputPrefetcher,
         actionKeyContext,
         metadataHandler,
+        injectionListener,
         fileOutErr,
         clientEnv,
         ImmutableMap.of(),
@@ -165,6 +172,10 @@ public class ActionExecutionContext implements Closeable {
 
   public MetadataHandler getMetadataHandler() {
     return metadataHandler;
+  }
+
+  public InjectionListener getInjectionListener() {
+    return injectionListener;
   }
 
   public FileSystem getFileSystem() {
@@ -322,6 +333,7 @@ public class ActionExecutionContext implements Closeable {
         actionInputPrefetcher,
         actionKeyContext,
         metadataHandler,
+        injectionListener,
         fileOutErr,
         clientEnv,
         topLevelFilesets,

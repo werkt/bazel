@@ -57,6 +57,7 @@ import com.google.devtools.build.lib.actions.ArtifactPrefixConflictException;
 import com.google.devtools.build.lib.actions.CachedActionEvent;
 import com.google.devtools.build.lib.actions.EnvironmentalExecException;
 import com.google.devtools.build.lib.actions.Executor;
+import com.google.devtools.build.lib.actions.InjectionListener;
 import com.google.devtools.build.lib.actions.FileArtifactValue;
 import com.google.devtools.build.lib.actions.FilesetOutputSymlink;
 import com.google.devtools.build.lib.actions.LostInputsExecException.LostInputsActionExecutionException;
@@ -526,6 +527,7 @@ public final class SkyframeActionExecutor {
   public ActionExecutionContext getContext(
       MetadataProvider perActionFileCache,
       MetadataHandler metadataHandler,
+      InjectionListener injectionListener,
       Map<Artifact, Collection<Artifact>> expandedInputs,
       Map<Artifact, ImmutableList<FilesetOutputSymlink>> expandedFilesets,
       ImmutableMap<Artifact, ImmutableList<FilesetOutputSymlink>> topLevelFilesets,
@@ -539,6 +541,7 @@ public final class SkyframeActionExecutor {
         actionInputPrefetcher,
         actionKeyContext,
         metadataHandler,
+        injectionListener,
         fileOutErr,
         clientEnv,
         topLevelFilesets,
@@ -660,6 +663,7 @@ public final class SkyframeActionExecutor {
       Action action,
       MetadataProvider perActionFileCache,
       MetadataHandler metadataHandler,
+      InjectionListener injectionListener,
       Environment env,
       @Nullable FileSystem actionFileSystem)
       throws ActionExecutionException, InterruptedException {
@@ -670,6 +674,7 @@ public final class SkyframeActionExecutor {
             actionInputPrefetcher,
             actionKeyContext,
             metadataHandler,
+            injectionListener,
             actionLogBufferPathGenerator.generate(ArtifactPathResolver.createPathResolver(
                 actionFileSystem, executorEngine.getExecRoot())),
             clientEnv,

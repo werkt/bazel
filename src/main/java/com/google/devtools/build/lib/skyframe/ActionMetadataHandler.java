@@ -411,7 +411,7 @@ public final class ActionMetadataHandler implements MetadataHandler {
   }
 
   @Override
-  public void injectDigest(ActionInput output, FileStatus statNoFollow, byte[] digest) {
+  public void injectDigest(ActionInput output, FileStatusWithDigest statNoFollow) {
     Preconditions.checkState(executionMode.get());
     // Assumption: any non-Artifact output is 'virtual' and should be ignored here.
     if (output instanceof Artifact) {
@@ -419,6 +419,7 @@ public final class ActionMetadataHandler implements MetadataHandler {
       // We have to add the artifact to injectedFiles before calling constructArtifactFileMetadata
       // to avoid duplicate chmod calls.
       store.injectedFiles().add(artifact);
+      byte[] digest;
       ArtifactFileMetadata fileMetadata;
       try {
         // This call may do an unnecessary call to Path#getFastDigest to see if the digest is
@@ -431,6 +432,7 @@ public final class ActionMetadataHandler implements MetadataHandler {
                 artifact, FileStatusWithDigestAdapter.adapt(statNoFollow));
         // Ensure the digest supplied matches the actual digest if it exists.
         byte[] fileDigest = fileMetadata.getDigest();
+        digest = statNoFollow.getDigest();
         if (fileDigest != null && !Arrays.equals(digest, fileDigest)) {
           BaseEncoding base16 = BaseEncoding.base16();
           String digestString = (digest != null) ? base16.encode(digest) : "null";

@@ -34,6 +34,7 @@ import com.google.devtools.build.lib.actions.ArtifactPathResolver;
 import com.google.devtools.build.lib.actions.ArtifactSkyKey;
 import com.google.devtools.build.lib.actions.FileArtifactValue;
 import com.google.devtools.build.lib.actions.FilesetOutputSymlink;
+import com.google.devtools.build.lib.actions.InjectionListener;
 import com.google.devtools.build.lib.actions.LostInputsExecException.LostInputsActionExecutionException;
 import com.google.devtools.build.lib.actions.MetadataProvider;
 import com.google.devtools.build.lib.actions.MissingDepException;
@@ -457,9 +458,15 @@ public class ActionExecutionFunction implements SkyFunction, CompletionReceiver 
             throw new ActionExecutionException(
                 "Failed to update filesystem context: ", e, action, /*catastrophe=*/ false);
           }
+          InjectionListener injectionListener;
+          if (state.actionFileSystem instanceof InjectionListener) {
+            injectionListener = (InjectionListener) state.actionFileSystem;
+          } else {
+            injectionListener = metadataHandler::injectRemoteFile;
+          }
           state.discoveredInputs =
               skyframeActionExecutor.discoverInputs(
-                  action, perActionFileCache, metadataHandler, env, state.actionFileSystem);
+                  action, perActionFileCache, metadataHandler, injectionListener, env, state.actionFileSystem);
           Preconditions.checkState(
               env.valuesMissing() == (state.discoveredInputs == null),
               "discoverInputs() must return null iff requesting more dependencies.");
@@ -508,6 +515,13 @@ public class ActionExecutionFunction implements SkyFunction, CompletionReceiver 
       filesetMappings.put(actionInput, mapping);
     }
 
+    InjectionListener injectionListener;
+    if (state.actionFileSystem instanceof InjectionListener) {
+      injectionListener = (InjectionListener) state.actionFileSystem;
+    } else {
+      injectionListener = metadataHandler::injectRemoteFile;
+    }
+
     ImmutableMap<Artifact, ImmutableList<FilesetOutputSymlink>> topLevelFilesets =
         ImmutableMap.copyOf(filesetMappings);
 
@@ -526,6 +540,7 @@ public class ActionExecutionFunction implements SkyFunction, CompletionReceiver 
         skyframeActionExecutor.getContext(
             perActionFileCache,
             metadataHandler,
+            injectionListener,
             Collections.unmodifiableMap(state.expandedArtifacts),
             expandedFilesets,
             topLevelFilesets,
@@ -881,6 +896,7 @@ public class ActionExecutionFunction implements SkyFunction, CompletionReceiver 
       if (actionFileSystem != null) {
         executor.updateActionFileSystemContext(
             actionFileSystem, env, metadataHandler.getOutputStore()::injectOutputData, filesets);
+        // maybe register the injectionListener?
       }
     }
 

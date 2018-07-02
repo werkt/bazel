@@ -76,9 +76,16 @@ public class TracingMetadataUtils {
         .setToolDetails(
             ToolDetails.newBuilder()
                 .setToolName("bazel")
-                .setToolVersion(BlazeVersionInfo.instance().getVersion()))
-        .build();
-    return Context.current().withValue(CONTEXT_KEY, metadata.build());
+                .setToolVersion(BlazeVersionInfo.instance().getVersion()));
+    return contextWithMetadata(metadata.build());
+  }
+
+  /**
+   * Returns a new gRPC context derived from the current context, with {@link RequestMetadata}
+   * accessible by the {@link fromCurrentContext()} method.
+   */
+  public static Context contextWithMetadata(RequestMetadata metadata) {
+    return Context.current().withValue(CONTEXT_KEY, metadata);
   }
 
   /**

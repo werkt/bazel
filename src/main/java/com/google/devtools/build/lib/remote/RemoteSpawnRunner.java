@@ -23,17 +23,20 @@ import build.bazel.remote.execution.v2.Digest;
 import build.bazel.remote.execution.v2.ExecuteRequest;
 import build.bazel.remote.execution.v2.ExecuteResponse;
 import build.bazel.remote.execution.v2.LogFile;
+import build.bazel.remote.execution.v2.OutputFile;
 import build.bazel.remote.execution.v2.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.devtools.build.lib.actions.ActionInput;
 import com.google.devtools.build.lib.actions.Artifact;
 import com.google.devtools.build.lib.actions.CommandLines.ParamFileActionInput;
 import com.google.devtools.build.lib.actions.EnvironmentalExecException;
 import com.google.devtools.build.lib.actions.ExecException;
+import com.google.devtools.build.lib.actions.InjectionListener;
 import com.google.devtools.build.lib.actions.MetadataProvider;
 import com.google.devtools.build.lib.actions.Spawn;
 import com.google.devtools.build.lib.actions.SpawnResult;
@@ -182,19 +185,18 @@ class RemoteSpawnRunner implements SpawnRunner {
                     + " served a failed action. Hash of the action: "
                     + actionKey.getDigest());
           }
-          try {
-            return downloadRemoteResults(cachedResult, context.getFileOutErr())
-                .setCacheHit(true)
-                .setRunnerName("remote cache hit")
-                .build();
-          } catch (RetryException e) {
-            if (!AbstractRemoteActionCache.causedByCacheMiss(e)) {
-              throw e;
-            }
-            // No cache hit, so we fall through to local or remote execution.
-            // We set acceptCachedResult to false in order to force the action re-execution.
-            acceptCachedResult = false;
-          }
+          // TODO(bazel-team): Provide a way for actions to register empty TreeArtifacts.
+          injectRemoteResults(
+              cachedResult,
+              spawn.getOutputFiles(),
+              context.getInjectionListener(),
+              context.getFileOutErr());
+          return new SpawnResult.Builder()
+              .setStatus(Status.SUCCESS)
+              .setExitCode(0)
+              .setCacheHit(true)
+              .setRunnerName("remote cache hit")
+              .build();
         }
       } catch (IOException e) {
         return execLocallyAndUploadOrFail(
@@ -221,7 +223,17 @@ class RemoteSpawnRunner implements SpawnRunner {
               ExecuteResponse reply = remoteExecutor.executeRemotely(request);
               maybeDownloadServerLogs(reply, actionKey);
 
-              return downloadRemoteResults(reply.getResult(), context.getFileOutErr())
+              ActionResult result = reply.getResult();
+              injectRemoteResults(
+                  result,
+                  spawn.getOutputFiles(),
+                  context.getInjectionListener(),
+                  context.getFileOutErr());
+
+              int exitCode = result.getExitCode();
+              return new SpawnResult.Builder()
+                  .setStatus(exitCode == 0 ? Status.SUCCESS : Status.NON_ZERO_EXIT)
+                  .setExitCode(exitCode)
                   .setRunnerName(reply.getCachedResult() ? "remote cache hit" : getName())
                   .setCacheHit(reply.getCachedResult())
                   .build();
@@ -281,13 +293,27 @@ class RemoteSpawnRunner implements SpawnRunner {
     }
   }
 
-  private SpawnResult.Builder downloadRemoteResults(ActionResult result, FileOutErr outErr)
-      throws ExecException, IOException, InterruptedException {
-    remoteCache.download(result, execRoot, outErr);
-    int exitCode = result.getExitCode();
-    return new SpawnResult.Builder()
-        .setStatus(exitCode == 0 ? Status.SUCCESS : Status.NON_ZERO_EXIT)
-        .setExitCode(exitCode);
+  private void injectRemoteResults(
+      ActionResult result,
+      Collection<? extends ActionInput> outputs,
+      InjectionListener injectionListener,
+      FileOutErr outErr) throws IOException {
+    Map<String, OutputFile> outputFiles = Maps.uniqueIndex(result.getOutputFilesList(), (outputFile) -> outputFile.getPath());
+    for (ActionInput output : outputs) {
+      if (output instanceof Artifact) {
+        final Artifact artifact = (Artifact) output;
+        OutputFile outputFile = outputFiles.get(artifact.getExecPathString());
+        if (outputFile == null) {
+          continue;
+        }
+        OutputFileStatusWithDigest status = new OutputFileStatusWithDigest(outputFile);
+        injectionListener.onInsert(
+            artifact,
+            status.getDigest(),
+            status.getSize(),
+            1); // and it shall be so
+      }
+    }
   }
 
   private SpawnResult execLocally(Spawn spawn, SpawnExecutionContext context)

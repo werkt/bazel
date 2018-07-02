@@ -130,7 +130,7 @@ public class DigestUtil {
     return new HashingOutputStream(hashFn.getHashFunction(), out);
   }
 
-  public String toString(Digest digest) {
+  public static String toString(Digest digest) {
     return digest.getHash() + "/" + digest.getSizeBytes();
   }
 

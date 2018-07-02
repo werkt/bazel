@@ -42,6 +42,7 @@ import com.google.devtools.build.lib.util.ExitCode;
 import com.google.devtools.build.lib.util.io.AsynchronousFileOutputStream;
 import com.google.devtools.build.lib.vfs.DigestHashFunction;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
+import com.google.devtools.build.lib.vfs.OutputService;
 import com.google.devtools.build.lib.vfs.Path;
 import com.google.devtools.common.options.OptionsBase;
 import com.google.devtools.common.options.OptionsParsingResult;
@@ -64,6 +65,7 @@ import java.util.function.Predicate;
 public final class RemoteModule extends BlazeModule {
 
   private AsynchronousFileOutputStream rpcLogFile;
+  private OutputService outputService;
 
   private final ListeningScheduledExecutorService retryScheduler =
       MoreExecutors.listeningDecorator(Executors.newScheduledThreadPool(1));
@@ -176,7 +178,7 @@ public final class RemoteModule extends BlazeModule {
                     interceptors.toArray(new ClientInterceptor[0])));
       }
       RemoteRetrier executeRetrier = null;
-      AbstractRemoteActionCache cache = null;
+      final AbstractRemoteActionCache cache;
       if (enableGrpcCache || !Strings.isNullOrEmpty(remoteOptions.remoteExecutor)) {
         rpcRetrier =
               new RemoteRetrier(
@@ -245,9 +247,7 @@ public final class RemoteModule extends BlazeModule {
                 cacheChannel.authority(),
                 requestContext,
                 remoteOptions.remoteInstanceName));
-      }
-
-      if (enableBlobStoreCache) {
+      } else if (enableBlobStoreCache) {
         Retrier retrier =
             new Retrier(
                 () -> Retrier.RETRIES_DISABLED,
@@ -264,6 +264,22 @@ public final class RemoteModule extends BlazeModule {
                     env.getWorkingDirectory()),
                 retrier,
                 digestUtil);
+      } else {
+        cache = null;
+      }
+
+      if (remoteOptions.experimentalRemoteOutputService) {
+        outputService = new RemoteOutputService(
+            env::getExecRoot,
+            env.getOutputBase().getFileSystem(),
+            (locationIndex) -> {
+              if (locationIndex == 1) {
+                return cache;
+              }
+              return null;
+            });
+      } else {
+        outputService = null;
       }
 
       GrpcRemoteExecutor executor = null;
@@ -374,5 +390,9 @@ public final class RemoteModule extends BlazeModule {
       }
       return uploaderFactory0.create(env);
     }
+  }
+
+  public OutputService getOutputService() throws AbruptExitException {
+    return outputService;
   }
 }
