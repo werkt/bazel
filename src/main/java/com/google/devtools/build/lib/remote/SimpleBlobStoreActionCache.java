@@ -27,7 +27,9 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.devtools.build.lib.actions.ActionInput;
+import com.google.devtools.build.lib.actions.Artifact;
 import com.google.devtools.build.lib.actions.ExecException;
+import com.google.devtools.build.lib.actions.InjectionListener;
 import com.google.devtools.build.lib.actions.MetadataProvider;
 import com.google.devtools.build.lib.actions.cache.VirtualActionInput;
 import com.google.devtools.build.lib.concurrent.ThreadSafety.ThreadSafe;
@@ -124,12 +126,13 @@ public final class SimpleBlobStoreActionCache extends AbstractRemoteActionCache 
       Action action,
       Command command,
       Path execRoot,
-      Collection<Path> files,
+      Map<Path, ? extends ActionInput> files,
       FileOutErr outErr,
-      boolean uploadAction)
+      boolean uploadAction,
+      InjectionListener injectionListener)
       throws ExecException, IOException, InterruptedException {
     ActionResult.Builder result = ActionResult.newBuilder();
-    upload(result, actionKey, action, command, execRoot, files, uploadAction);
+    upload(result, actionKey, action, command, execRoot, files, uploadAction, injectionListener);
     if (outErr.getErrorPath().exists()) {
       Digest stderr = uploadFileContents(outErr.getErrorPath());
       result.setStderrDigest(stderr);
@@ -149,12 +152,13 @@ public final class SimpleBlobStoreActionCache extends AbstractRemoteActionCache 
       Action action,
       Command command,
       Path execRoot,
-      Collection<Path> files,
-      boolean uploadAction)
+      Map<Path, ? extends ActionInput> files,
+      boolean uploadAction,
+      InjectionListener injectionListener)
       throws ExecException, IOException, InterruptedException {
     UploadManifest manifest =
         new UploadManifest(digestUtil, result, execRoot, options.allowSymlinkUpload);
-    manifest.addFiles(files);
+    manifest.addFiles(files.keySet());
     if (uploadAction) {
       manifest.addAction(actionKey, action, command);
     }
@@ -162,6 +166,23 @@ public final class SimpleBlobStoreActionCache extends AbstractRemoteActionCache 
     for (Map.Entry<Digest, Path> entry : manifest.getDigestToFile().entrySet()) {
       try (InputStream in = entry.getValue().getInputStream()) {
         uploadStream(entry.getKey(), in);
+      }
+    }
+
+    Map<Path, Digest> fileToDigest = manifest.getFileToDigest();
+    for (Map.Entry<Path, ? extends ActionInput> entry : files.entrySet()) {
+      ActionInput output = entry.getValue();
+      if (output instanceof Artifact) {
+        final Artifact artifact = (Artifact) output;
+        Digest digest = fileToDigest.get(entry.getKey());
+        if (digest == null) {
+          throw new IOException("No digest computed for " + entry.getKey());
+        }
+        injectionListener.onInsert(
+            artifact,
+            OutputFileStatusWithDigest.parseDigest(digest),
+            digest.getSizeBytes(),
+            1); // and it shall be so
       }
     }
 

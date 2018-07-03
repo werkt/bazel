@@ -40,7 +40,9 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.devtools.build.lib.actions.ActionInput;
+import com.google.devtools.build.lib.actions.Artifact;
 import com.google.devtools.build.lib.actions.ExecException;
+import com.google.devtools.build.lib.actions.InjectionListener;
 import com.google.devtools.build.lib.concurrent.ThreadSafety.ThreadSafe;
 import com.google.devtools.build.lib.remote.Retrier.RetryException;
 import com.google.devtools.build.lib.remote.TreeNodeRepository.TreeNode;
@@ -256,12 +258,13 @@ public class GrpcRemoteCache extends AbstractRemoteActionCache {
       Action action,
       Command command,
       Path execRoot,
-      Collection<Path> files,
+      Map<Path, ? extends ActionInput> files,
       FileOutErr outErr,
-      boolean uploadAction)
+      boolean uploadAction,
+      InjectionListener injectionListener)
       throws ExecException, IOException, InterruptedException {
     ActionResult.Builder result = ActionResult.newBuilder();
-    upload(execRoot, actionKey, action, command, files, outErr, uploadAction, result);
+    upload(execRoot, actionKey, action, command, files, outErr, uploadAction, result, injectionListener);
     if (!uploadAction) {
       return;
     }
@@ -281,16 +284,31 @@ public class GrpcRemoteCache extends AbstractRemoteActionCache {
       ActionKey actionKey,
       Action action,
       Command command,
-      Collection<Path> files,
+      Map<Path, ? extends ActionInput> files,
       FileOutErr outErr,
       boolean uploadAction,
-      ActionResult.Builder result)
+      ActionResult.Builder result,
+      InjectionListener injectionListener)
       throws ExecException, IOException, InterruptedException {
     UploadManifest manifest =
         new UploadManifest(digestUtil, result, execRoot, options.allowSymlinkUpload);
-    manifest.addFiles(files);
+    manifest.addFiles(files.keySet());
     if (uploadAction) {
       manifest.addAction(actionKey, action, command);
+    }
+
+    Map<Path, Digest> fileToDigest = manifest.getFileToDigest();
+    for (Map.Entry<Path, ? extends ActionInput> entry : files.entrySet()) {
+      ActionInput output = entry.getValue();
+      if (output instanceof Artifact) {
+        final Artifact artifact = (Artifact) output;
+        Digest digest = fileToDigest.get(entry.getKey());
+        injectionListener.onInsert(
+            artifact,
+            OutputFileStatusWithDigest.parseDigest(digest),
+            digest.getSizeBytes(),
+            1); // and it shall be so
+      }
     }
 
     List<Chunker> filesToUpload = new ArrayList<>();

@@ -16,6 +16,7 @@ package com.google.devtools.build.lib.remote;
 
 import build.bazel.remote.execution.v2.Digest;
 import build.bazel.remote.execution.v2.RequestMetadata;
+import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -279,17 +280,9 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
     throw new UnsupportedOperationException();
   }
 
-  /**
-   * Returns the size in bytes of the file denoted by {@code path}. See {@link
-   * Path#getFileSize(Symlinks)} for specification.
-   *
-   * <p>Note: for <@link FileSystem>s where {@link #supportsSymbolicLinksNatively(Path)} returns
-   * false, this method will throw an {@link UnsupportedOperationException} if {@code
-   * followSymLinks=false}.
-   */
   @Override
   protected long getFileSize(Path path, boolean followSymlinks) throws IOException {
-    throw new UnsupportedOperationException();
+    return stat(path, followSymlinks).getSize();
   }
 
   /** Deletes the file denoted by {@code path}. See {@link Path#delete} for specification. */
@@ -387,13 +380,17 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
     throw new UnsupportedOperationException();
   }
 
-  /**
-   * Returns true iff {@code path} denotes an existing file of any kind. See
-   * {@link Path#exists(Symlinks)} for specification.
-   */
   @Override
   protected boolean exists(Path path, boolean followSymlinks) {
-    throw new UnsupportedOperationException();
+    Preconditions.checkArgument(
+        followSymlinks, "RemoteActionFileSystem doesn't support no-follow: %s", path);
+    return getMetadataUnchecked(path) != null;
+  }
+
+
+  @Override
+  protected boolean isReadable(Path path) throws IOException {
+    return exists(path, true);
   }
 
   /**
@@ -404,16 +401,6 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
    */
   @Override
   protected Collection<String> getDirectoryEntries(Path path) throws IOException {
-    throw new UnsupportedOperationException();
-  }
-
-  /**
-   * Returns true iff the file represented by {@code path} is readable.
-   *
-   * @throws IOException if there was an error reading the file's metadata
-   */
-  @Override
-  protected boolean isReadable(Path path) throws IOException {
     throw new UnsupportedOperationException();
   }
 
@@ -494,6 +481,9 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
     if (inputStream != null) {
       return inputStream;
     }
+    if (path.startsWith(outputPathFragment)) {
+      throw new FileNotFoundException(path.getPathString() + " was not found");
+    }
     return getSourcePath(path.asFragment()).getInputStream();
   }
 
@@ -510,7 +500,9 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
       RemoteFileArtifactValue remoteFile = (RemoteFileArtifactValue) metadata;
       Digest digest = DigestUtil.buildDigest(remoteFile.getDigest(), remoteFile.getSize());
       AbstractRemoteActionCache cache = locations.apply(remoteFile.getLocationIndex());
-      if (cache != null) {
+      if (cache == null) {
+        System.out.println("No location for index: " + remoteFile.getLocationIndex());
+      } else {
         // FIXME needs to write to the file itself...
         return getInputStreamFromDigest(cache, getRequestMetadataChecked(asExecPath(path)), digest);
       }
@@ -525,7 +517,7 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
     try {
       return new ByteArrayInputStream(Utils.getFromFuture(cache.downloadBlob(digest)));
     } catch (InterruptedException e) {
-      throw new RuntimeException(e);
+      throw new IOException(e);
     } finally {
       withMetadata.detach(previous);
     }
@@ -645,9 +637,19 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
     return metadata;
   }
 
+  @Nullable
+  private FileArtifactValue getMetadataUnchecked(Path path) {
+    try {
+      return getMetadataChecked(asExecPath(path));
+    } catch (IOException e) {
+      throw new IllegalStateException(
+          "Error getting metadata for " + path.getPathString() + ": " + e.getMessage(), e);
+    }
+  }
+
   private Path getSourcePath(PathFragment path) throws IOException {
     if (path.startsWith(outputPathFragment)) {
-      throw new IOException("ActionFS cannot delegate to underlying output path for " + path);
+      throw new IOException("RemoteActionFileSystem cannot delegate to underlying output path for " + path);
     }
     return sourceDelegate.getPath(path);
   }

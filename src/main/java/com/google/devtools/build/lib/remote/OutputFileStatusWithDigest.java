@@ -14,6 +14,7 @@
 
 package com.google.devtools.build.lib.remote;
 
+import build.bazel.remote.execution.v2.Digest;
 import build.bazel.remote.execution.v2.OutputFile;
 import com.google.common.io.BaseEncoding;
 import com.google.devtools.build.lib.vfs.FileStatusWithDigest;
@@ -32,7 +33,11 @@ class OutputFileStatusWithDigest implements FileStatusWithDigest {
     isExecutable = outputFile.getIsExecutable();
     // FIXME symlink support
     size = outputFile.getDigest().getSizeBytes();
-    digest = BaseEncoding.base16().lowerCase().decode(outputFile.getDigest().getHash());
+    digest = parseDigest(outputFile.getDigest());
+  }
+
+  public static byte[] parseDigest(Digest digest) {
+    return BaseEncoding.base16().lowerCase().decode(digest.getHash());
   }
 
   /**
