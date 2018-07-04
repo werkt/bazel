@@ -46,6 +46,7 @@ import com.google.devtools.build.lib.actions.ArtifactOwner;
 import com.google.devtools.build.lib.actions.ArtifactResolver;
 import com.google.devtools.build.lib.actions.ArtifactRoot;
 import com.google.devtools.build.lib.actions.Executor;
+import com.google.devtools.build.lib.actions.InjectionListener;
 import com.google.devtools.build.lib.actions.FileArtifactValue;
 import com.google.devtools.build.lib.actions.MutableActionGraph;
 import com.google.devtools.build.lib.actions.MutableActionGraph.ActionConflictException;
@@ -69,7 +70,7 @@ import com.google.devtools.build.lib.util.FileType;
 import com.google.devtools.build.lib.util.Fingerprint;
 import com.google.devtools.build.lib.util.ResourceUsage;
 import com.google.devtools.build.lib.util.io.FileOutErr;
-import com.google.devtools.build.lib.vfs.FileStatus;
+import com.google.devtools.build.lib.vfs.FileStatusWithDigest;
 import com.google.devtools.build.lib.vfs.Path;
 import com.google.devtools.build.lib.vfs.PathFragment;
 import com.google.devtools.build.lib.vfs.Root;
@@ -118,6 +119,7 @@ public final class ActionsTestUtil {
       FileOutErr fileOutErr,
       Path execRoot,
       MetadataHandler metadataHandler,
+      InjectionListener injectionListener,
       @Nullable ActionGraph actionGraph) {
     return createContext(
         executor,
@@ -125,6 +127,7 @@ public final class ActionsTestUtil {
         fileOutErr,
         execRoot,
         metadataHandler,
+        injectionListener,
         ImmutableMap.of(),
         actionGraph);
   }
@@ -135,6 +138,7 @@ public final class ActionsTestUtil {
       FileOutErr fileOutErr,
       Path execRoot,
       MetadataHandler metadataHandler,
+      InjectionListener injectionListener,
       Map<String, String> clientEnv,
       @Nullable ActionGraph actionGraph) {
     return new ActionExecutionContext(
@@ -143,6 +147,7 @@ public final class ActionsTestUtil {
         ActionInputPrefetcher.NONE,
         actionKeyContext,
         metadataHandler,
+        injectionListener,
         fileOutErr,
         ImmutableMap.copyOf(clientEnv),
         ImmutableMap.of(),
@@ -159,6 +164,7 @@ public final class ActionsTestUtil {
       FileOutErr fileOutErr,
       Path execRoot,
       MetadataHandler metadataHandler,
+      InjectionListener injectionListener,
       BuildDriver buildDriver) {
     return ActionExecutionContext.forInputDiscovery(
         executor,
@@ -166,6 +172,7 @@ public final class ActionsTestUtil {
         ActionInputPrefetcher.NONE,
         actionKeyContext,
         metadataHandler,
+        injectionListener,
         fileOutErr,
         ImmutableMap.of(),
         new BlockingSkyFunctionEnvironment(
@@ -181,6 +188,7 @@ public final class ActionsTestUtil {
         ActionInputPrefetcher.NONE,
         new ActionKeyContext(),
         null,
+        (dest, digest, size, backendIndex) -> {},
         null,
         ImmutableMap.of(),
         ImmutableMap.of(),
@@ -740,7 +748,7 @@ public final class ActionsTestUtil {
     }
 
     @Override
-    public void injectDigest(ActionInput output, FileStatus statNoFollow, byte[] digest) {
+    public void injectDigest(ActionInput output, FileStatusWithDigest statNoFollow) {
       throw new UnsupportedOperationException();
     }
 

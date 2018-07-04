@@ -30,7 +30,9 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningScheduledExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
+import com.google.devtools.build.lib.actions.ActionInput;
 import com.google.devtools.build.lib.actions.ExecException;
+import com.google.devtools.build.lib.actions.InjectionListener;
 import com.google.devtools.build.lib.clock.JavaClock;
 import com.google.devtools.build.lib.remote.AbstractRemoteActionCache.UploadManifest;
 import com.google.devtools.build.lib.remote.TreeNodeRepository.TreeNode;
@@ -237,9 +239,10 @@ public class AbstractRemoteActionCacheTests {
         Action action,
         Command command,
         Path execRoot,
-        Collection<Path> files,
+        Map<Path, ? extends ActionInput> files,
         FileOutErr outErr,
-        boolean uploadAction)
+        boolean uploadAction,
+        InjectionListener injectionListener)
         throws ExecException, IOException, InterruptedException {
       throw new UnsupportedOperationException();
     }
