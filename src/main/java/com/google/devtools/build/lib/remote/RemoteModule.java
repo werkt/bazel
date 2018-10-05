@@ -25,9 +25,14 @@ import com.google.devtools.build.lib.buildeventstream.BuildEventArtifactUploader
 import com.google.devtools.build.lib.buildtool.BuildRequest;
 import com.google.devtools.build.lib.events.Event;
 import com.google.devtools.build.lib.exec.ExecutorBuilder;
-import com.google.devtools.build.lib.remote.Retrier.RetryException;
+import com.google.devtools.build.lib.remote.blobstore.SimpleBlobStore;
 import com.google.devtools.build.lib.remote.logging.LoggingInterceptor;
 import com.google.devtools.build.lib.remote.util.DigestUtil;
+import com.google.devtools.build.lib.remote.util.RemoteRetrier;
+import com.google.devtools.build.lib.remote.util.RemoteRetrier.BackoffDescriptor;
+import com.google.devtools.build.lib.remote.util.RemoteRetrierUtils;
+import com.google.devtools.build.lib.remote.util.Retrier;
+import com.google.devtools.build.lib.remote.util.Retrier.RetryException;
 import com.google.devtools.build.lib.remote.util.TracingMetadataUtils;
 import com.google.devtools.build.lib.runtime.BlazeModule;
 import com.google.devtools.build.lib.runtime.Command;
@@ -52,6 +57,7 @@ import io.grpc.ManagedChannel;
 import io.grpc.Status.Code;
 import io.grpc.protobuf.StatusProto;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -174,20 +180,17 @@ public final class RemoteModule extends BlazeModule {
         }
       }
       if (enableBlobStoreCache) {
-        Retrier retrier =
-            new Retrier(
-                () -> Retrier.RETRIES_DISABLED,
-                (e) -> false,
-                retryScheduler,
-                Retrier.ALLOW_ALL_CALLS);
+        SimpleBlobStore blobStore =
+            SimpleBlobStoreFactory.create(
+                remoteOptions,
+                GoogleAuthUtils.newCredentials(authAndTlsOptions),
+                env.getWorkingDirectory());
+        Retrier retrier = blobStore.retrier(backoffDescriptor(remoteOptions), retryScheduler);
         executeRetrier = null;
         cache =
             new SimpleBlobStoreActionCache(
                 remoteOptions,
-                SimpleBlobStoreFactory.create(
-                    remoteOptions,
-                    GoogleAuthUtils.newCredentials(authAndTlsOptions),
-                    env.getWorkingDirectory()),
+                blobStore,
                 retrier,
                 digestUtil);
       } else if (enableGrpcCache || remoteOptions.remoteExecutor != null) {
@@ -201,7 +204,7 @@ public final class RemoteModule extends BlazeModule {
                     interceptors.toArray(new ClientInterceptor[0])));
         RemoteRetrier rpcRetrier =
             new RemoteRetrier(
-                remoteOptions,
+                backoffDescriptor(remoteOptions),
                 RemoteRetrier.RETRIABLE_GRPC_ERRORS,
                 retryScheduler,
                 Retrier.ALLOW_ALL_CALLS);
@@ -243,7 +246,7 @@ public final class RemoteModule extends BlazeModule {
                 interceptors.toArray(new ClientInterceptor[0]));
         RemoteRetrier retrier =
             new RemoteRetrier(
-                remoteOptions,
+								backoffDescriptor(remoteOptions),
                 RemoteRetrier.RETRIABLE_GRPC_EXEC_ERRORS,
                 retryScheduler,
                 Retrier.ALLOW_ALL_CALLS);
@@ -292,6 +295,15 @@ public final class RemoteModule extends BlazeModule {
     return "build".equals(command.name())
         ? ImmutableList.of(RemoteOptions.class, AuthAndTLSOptions.class)
         : ImmutableList.of();
+  }
+
+  static BackoffDescriptor backoffDescriptor(RemoteOptions options) {
+		return new BackoffDescriptor(
+				Duration.ofMillis(options.experimentalRemoteRetryStartDelayMillis),
+				Duration.ofMillis(options.experimentalRemoteRetryMaxDelayMillis),
+				options.experimentalRemoteRetryMultiplier,
+				options.experimentalRemoteRetryJitter,
+				options.experimentalRemoteRetryMaxAttempts);
   }
 
   static RemoteRetrier createExecuteRetrier(

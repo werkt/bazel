@@ -17,8 +17,12 @@ import static com.google.devtools.build.lib.remote.util.Utils.getFromFuture;
 
 import com.google.auth.Credentials;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningScheduledExecutorService;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.devtools.build.lib.remote.blobstore.SimpleBlobStore;
+import com.google.devtools.build.lib.remote.util.RemoteRetrier;
+import com.google.devtools.build.lib.remote.util.RemoteRetrier.BackoffDescriptor;
+import com.google.devtools.build.lib.remote.util.Retrier;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -64,6 +68,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.URI;
+import java.nio.channels.ClosedChannelException;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ExecutionException;
@@ -612,5 +617,19 @@ public final class HttpBlobStore implements SimpleBlobStore {
         creds.refresh();
       }
     }
+  }
+
+  @Override
+  public Retrier retrier(BackoffDescriptor descriptor, ListeningScheduledExecutorService retryScheduler) {
+    return new RemoteRetrier(
+        descriptor,
+        this::shouldRetry,
+        retryScheduler,
+        Retrier.ALLOW_ALL_CALLS);
+  }
+
+  private boolean shouldRetry(Exception e) {
+    // add more here or use an existing predicate above for venerable transient HTTP exceptions
+    return e instanceof ClosedChannelException;
   }
 }

@@ -17,7 +17,10 @@ import static com.google.devtools.build.lib.remote.util.Utils.getFromFuture;
 
 import com.google.common.io.ByteStreams;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningScheduledExecutorService;
 import com.google.common.util.concurrent.SettableFuture;
+import com.google.devtools.build.lib.remote.util.Retrier;
+import com.google.devtools.build.lib.remote.util.RemoteRetrier.BackoffDescriptor;
 import com.google.devtools.build.lib.vfs.Path;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -89,5 +92,14 @@ public final class OnDiskBlobStore implements SimpleBlobStore {
 
   private Path toPath(String key) {
     return root.getChild(key);
+  }
+
+  @Override
+  public Retrier retrier(BackoffDescriptor descriptor, ListeningScheduledExecutorService retryScheduler) {
+    return new Retrier(
+        () -> Retrier.RETRIES_DISABLED,
+        (e) -> false,
+        retryScheduler,
+        Retrier.ALLOW_ALL_CALLS);
   }
 }

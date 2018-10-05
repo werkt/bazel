@@ -39,6 +39,7 @@ import com.google.devtools.build.lib.exec.SpawnRunner.SpawnExecutionContext;
 import com.google.devtools.build.lib.remote.TreeNodeRepository.TreeNode;
 import com.google.devtools.build.lib.remote.util.DigestUtil;
 import com.google.devtools.build.lib.remote.util.DigestUtil.ActionKey;
+import com.google.devtools.build.lib.remote.util.Retrier.RetryException;
 import com.google.devtools.build.lib.remote.util.TracingMetadataUtils;
 import com.google.devtools.build.lib.vfs.Path;
 import com.google.devtools.build.lib.vfs.PathFragment;
@@ -88,6 +89,20 @@ final class RemoteSpawnCache implements SpawnCache {
     this.buildRequestId = buildRequestId;
     this.commandId = commandId;
     this.digestUtil = digestUtil;
+  }
+
+  private void printHelpfulRetrierMessage(Exception e) {
+    Throwable t = e;
+    while (t != null) {
+      if ((t instanceof RetryException)) {
+        // nothing
+      } else {
+        System.err.println("Maybe you should add a test for " + e.getClass().toString() + " to your blobstore's shouldRetry method");
+        break;
+      }
+      t = t.getCause();
+    }
+    e.printStackTrace();
   }
 
   @Override
@@ -173,6 +188,7 @@ final class RemoteSpawnCache implements SpawnCache {
           }
           errorMsg = "Error reading from the remote cache:\n" + errorMsg;
           report(Event.warn(errorMsg));
+          printHelpfulRetrierMessage(e);
         }
       } finally {
         withMetadata.detach(previous);

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package com.google.devtools.build.lib.remote;
+package com.google.devtools.build.lib.remote.util;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -84,14 +84,12 @@ public class RemoteRetrier extends Retrier {
       };
 
   public RemoteRetrier(
-      RemoteOptions options,
+			BackoffDescriptor backoffDescriptor,
       Predicate<? super Exception> shouldRetry,
       ListeningScheduledExecutorService retryScheduler,
       CircuitBreaker circuitBreaker) {
     this(
-        options.experimentalRemoteRetry
-            ? () -> new ExponentialBackoff(options)
-            : () -> RETRIES_DISABLED,
+        () -> new ExponentialBackoff(backoffDescriptor),
         shouldRetry,
         retryScheduler,
         circuitBreaker);
@@ -136,14 +134,30 @@ public class RemoteRetrier extends Retrier {
     return e -> !(e instanceof PassThroughException) && delegate.test(e);
   }
 
+  public static final class BackoffDescriptor {
+    public final Duration initial;
+    public final Duration max;
+    public final double multiplier;
+    public final double jitter;
+    public final int maxAttempts;
+
+    public BackoffDescriptor(Duration initial, Duration max, double multiplier, double jitter, int maxAttempts) {
+      this.initial = initial;
+      this.max = max;
+      this.multiplier = multiplier;
+      this.jitter = jitter;
+      this.maxAttempts = maxAttempts;
+    }
+  }
+
   static class ExponentialBackoff implements Retrier.Backoff {
 
     private final long maxMillis;
-    private long nextDelayMillis;
-    private int attempts = 0;
     private final double multiplier;
     private final double jitter;
     private final int maxAttempts;
+    private int attempts = 0;
+    private long nextDelayMillis;
 
     /**
      * Creates a Backoff supplier for an optionally jittered exponential backoff. The supplier is
@@ -168,12 +182,13 @@ public class RemoteRetrier extends Retrier {
       this.maxAttempts = maxAttempts;
     }
 
-    ExponentialBackoff(RemoteOptions options) {
-      this(Duration.ofMillis(options.experimentalRemoteRetryStartDelayMillis),
-          Duration.ofMillis(options.experimentalRemoteRetryMaxDelayMillis),
-          options.experimentalRemoteRetryMultiplier,
-          options.experimentalRemoteRetryJitter,
-          options.experimentalRemoteRetryMaxAttempts);
+    ExponentialBackoff(BackoffDescriptor descriptor) {
+      this(
+					descriptor.initial,
+          descriptor.max,
+          descriptor.multiplier,
+          descriptor.jitter,
+          descriptor.maxAttempts);
     }
 
     @Override

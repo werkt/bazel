@@ -15,6 +15,9 @@
 package com.google.devtools.build.lib.remote.blobstore;
 
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningScheduledExecutorService;
+import com.google.devtools.build.lib.remote.util.RemoteRetrier.BackoffDescriptor;
+import com.google.devtools.build.lib.remote.util.Retrier;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -62,4 +65,7 @@ public interface SimpleBlobStore {
 
   /** Close resources associated with the blob store. */
   void close();
+
+  /** Retrier to use on executions */
+  Retrier retrier(BackoffDescriptor descriptor, ListeningScheduledExecutorService retryScheduler);
 }

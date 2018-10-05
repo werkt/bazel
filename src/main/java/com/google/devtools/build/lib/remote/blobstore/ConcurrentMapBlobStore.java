@@ -16,7 +16,11 @@ package com.google.devtools.build.lib.remote.blobstore;
 import com.google.common.base.Preconditions;
 import com.google.common.io.ByteStreams;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningScheduledExecutorService;
 import com.google.common.util.concurrent.SettableFuture;
+import com.google.devtools.build.lib.remote.util.RemoteRetrier;
+import com.google.devtools.build.lib.remote.util.RemoteRetrier.BackoffDescriptor;
+import com.google.devtools.build.lib.remote.util.Retrier;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -85,5 +89,14 @@ public final class ConcurrentMapBlobStore implements SimpleBlobStore {
       }
       throw new IOException(e.getCause());
     }
+  }
+
+  @Override
+  public Retrier retrier(BackoffDescriptor descriptor, ListeningScheduledExecutorService retryScheduler) {
+    return new RemoteRetrier(
+        descriptor,
+        (e) -> false,
+        retryScheduler,
+        Retrier.ALLOW_ALL_CALLS);
   }
 }

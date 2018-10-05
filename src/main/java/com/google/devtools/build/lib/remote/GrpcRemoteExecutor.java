@@ -21,6 +21,8 @@ import build.bazel.remote.execution.v2.ExecutionGrpc.ExecutionBlockingStub;
 import build.bazel.remote.execution.v2.WaitExecutionRequest;
 import com.google.common.base.Preconditions;
 import com.google.devtools.build.lib.concurrent.ThreadSafety.ThreadSafe;
+import com.google.devtools.build.lib.remote.util.ExecutionStatusException;
+import com.google.devtools.build.lib.remote.util.RemoteRetrier;
 import com.google.devtools.build.lib.remote.util.TracingMetadataUtils;
 import com.google.longrunning.Operation;
 import com.google.protobuf.InvalidProtocolBufferException;

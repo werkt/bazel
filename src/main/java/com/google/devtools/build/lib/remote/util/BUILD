@@ -17,6 +17,7 @@ java_library(
         "//third_party:guava",
         "//third_party/grpc:grpc-jar",
         "//third_party/protobuf:protobuf_java",
+        "@googleapis//:google_rpc_status_java_proto",
         "@remoteapis//:build_bazel_remote_execution_v2_remote_execution_java_proto",
     ],
 )
