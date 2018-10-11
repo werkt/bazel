@@ -159,7 +159,7 @@ class OutputStore {
     // 2. Instead of creating an `additionalOutputData` entry, we could add the extra
     // `locationIndex` to `FileStateValue`.
     injectOutputData(
-        output, new FileArtifactValue.RemoteFileArtifactValue(digest, size, locationIndex));
+        output, new FileArtifactValue.RemoteFileArtifactValue(digest, size, 0, locationIndex));
   }
 
   final void injectOutputData(Artifact output, FileArtifactValue artifactValue) {

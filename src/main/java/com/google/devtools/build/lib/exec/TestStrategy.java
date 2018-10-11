@@ -420,7 +420,8 @@ public abstract class TestStrategy implements TestActionContext {
     new SymlinkTreeHelper(
             actionExecutionContext.getInputPath(execSettings.getInputManifest()),
             runfilesDir,
-            false)
+            false,
+            /* verboseFailures=*/ true)
         .createSymlinks(actionExecutionContext, binTools, shellEnvironment, enableRunfiles);
 
     actionExecutionContext.getEventHandler()

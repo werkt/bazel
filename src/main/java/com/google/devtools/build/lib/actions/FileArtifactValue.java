@@ -436,11 +436,13 @@ public abstract class FileArtifactValue implements SkyValue {
     private final byte[] digest;
     private final long size;
     private final int locationIndex;
+    private final long modifiedTime;
 
-    public RemoteFileArtifactValue(byte[] digest, long size, int locationIndex) {
+    public RemoteFileArtifactValue(byte[] digest, long size, long modifiedTime, int locationIndex) {
       this.digest = digest;
       this.size = size;
       this.locationIndex = locationIndex;
+      this.modifiedTime = modifiedTime;
     }
 
     @Override
@@ -460,8 +462,7 @@ public abstract class FileArtifactValue implements SkyValue {
 
     @Override
     public long getModifiedTime() {
-      throw new UnsupportedOperationException(
-          "RemoteFileArtifactValue doesn't support getModifiedTime");
+      return modifiedTime;
     }
 
     @Override

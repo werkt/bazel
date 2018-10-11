@@ -1147,6 +1147,7 @@ public final class SkyframeActionExecutor {
         try {
           metadataHandler.getMetadata(output);
         } catch (IOException e) {
+          e.printStackTrace();
           success = false;
           if (output.isTreeArtifact()) {
             reportOutputTreeArtifactErrors(action, output, reporter, e);

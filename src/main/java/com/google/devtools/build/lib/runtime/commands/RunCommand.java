@@ -510,7 +510,8 @@ public class RunCommand implements BlazeCommand  {
     SymlinkTreeHelper helper = new SymlinkTreeHelper(
         manifest.getPath(),
         runfilesSupport.getRunfilesDirectory(),
-        false);
+        false,
+        /* verboseFailures=*/ true);
     helper.createSymlinksUsingCommand(
         env.getExecRoot(), env.getBlazeWorkspace().getBinTools(),
         /* shellEnvironment= */ ImmutableMap.of(), /* outErr= */ null);

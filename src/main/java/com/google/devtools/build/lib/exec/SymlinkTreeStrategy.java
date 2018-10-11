@@ -64,7 +64,8 @@ public final class SymlinkTreeStrategy implements SymlinkTreeActionContext {
                   actionExecutionContext
                       .getInputPath(action.getOutputManifest())
                       .getParentDirectory(),
-                  action.isFilesetTree());
+                  action.isFilesetTree(),
+                  actionExecutionContext.getVerboseFailures());
           helper.createSymlinks(actionExecutionContext, binTools, shellEnvironment, enableRunfiles);
         }
       } catch (ExecException e) {

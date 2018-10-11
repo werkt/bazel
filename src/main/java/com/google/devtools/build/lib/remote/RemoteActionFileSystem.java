@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package com.google.devtools.build.lib.remote;
+package com.google.devtools.build.lib.vfs;
+
+import static com.google.devtools.build.lib.remote.util.DigestUtil.buildDigest;
 
 import build.bazel.remote.execution.v2.Digest;
 import build.bazel.remote.execution.v2.RequestMetadata;
@@ -36,16 +38,10 @@ import com.google.devtools.build.lib.actions.FileStateType;
 import com.google.devtools.build.lib.actions.FilesetOutputSymlink;
 import com.google.devtools.build.lib.actions.InjectionListener;
 import com.google.devtools.build.lib.actions.MetadataConsumer;
+import com.google.devtools.build.lib.remote.AbstractRemoteActionCache;
 import com.google.devtools.build.lib.remote.util.DigestUtil;
 import com.google.devtools.build.lib.remote.util.Utils;
 import com.google.devtools.build.lib.remote.util.TracingMetadataUtils;
-import com.google.devtools.build.lib.vfs.AbstractFileSystemWithCustomStat;
-import com.google.devtools.build.lib.vfs.DigestHashFunction;
-import com.google.devtools.build.lib.vfs.FileStatus;
-import com.google.devtools.build.lib.vfs.FileSystem;
-import com.google.devtools.build.lib.vfs.Path;
-import com.google.devtools.build.lib.vfs.PathFragment;
-import com.google.devtools.build.lib.vfs.Root;
 import com.google.devtools.build.skyframe.SkyFunction;
 import io.grpc.Context;
 import java.io.ByteArrayOutputStream;
@@ -58,7 +54,7 @@ import java.util.Collection;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
-class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements InjectionListener {
+public class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements InjectionListener {
 
   private final FileSystem writeDelegate;
   private final FileSystem sourceDelegate;
@@ -107,7 +103,7 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
     ImmutableMap<PathFragment, Artifact> outputsMapping = Streams.stream(outputArtifacts)
         .collect(ImmutableMap.toImmutableMap(Artifact::getExecPath, a -> a));
     outputs = CacheBuilder.newBuilder().build(
-    CacheLoader.from(path -> new OutputMetadata(outputsMapping.get(path))));
+        CacheLoader.from(path -> new OutputMetadata(outputsMapping.get(path))));
   }
 
   /**
@@ -117,7 +113,7 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
    * action-scoped, the environment and metadata consumer change multiple times, at well defined
    * points, during the lifetime of an action.
    */
-  void updateContext(
+  public void updateContext(
       SkyFunction.Environment env,
       MetadataConsumer metadataConsumer,
       ImmutableMap<Artifact, ImmutableList<FilesetOutputSymlink>> filesets) {
@@ -131,8 +127,10 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
   @Override
   public void onInsert(Artifact dest, byte[] digest, long size, int backendIndex)
       throws IOException {
+    // FIXME take last modified in
+    System.out.println(dest.getExecPath().toString() + ": " + DigestUtil.toString(buildDigest(digest, size)) + " backend " + backendIndex);
     outputs.getUnchecked(dest.getExecPath()).set(
-        new RemoteFileArtifactValue(digest, size, backendIndex),
+        new RemoteFileArtifactValue(digest, size, System.currentTimeMillis(), backendIndex),
         TracingMetadataUtils.fromCurrentContext(),
         /*notifyConsumer=*/ true);
   }
@@ -277,7 +275,7 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
    */
   @Override
   public void createDirectoryAndParents(Path path) throws IOException {
-    throw new UnsupportedOperationException();
+    writeDelegate.createDirectoryAndParents(path);
   }
 
   @Override
@@ -288,7 +286,7 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
   /** Deletes the file denoted by {@code path}. See {@link Path#delete} for specification. */
   @Override
   public boolean delete(Path path) throws IOException {
-    throw new UnsupportedOperationException();
+    return writeDelegate.delete(path);
   }
 
   /**
@@ -301,7 +299,16 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
    */
   @Override
   protected long getLastModifiedTime(Path path, boolean followSymlinks) throws IOException {
-    throw new UnsupportedOperationException();
+    try {
+      OutputMetadata metadata = outputs.getUnchecked(asExecPath(path));
+      if (metadata != null && metadata.getArtifact() != null) {
+        return metadata.getArtifact().getModifiedTime();
+      }
+      return writeDelegate.getLastModifiedTime(path, followSymlinks);
+    } catch (IOException e) {
+      e.printStackTrace();
+      throw e;
+    }
   }
 
   /**
@@ -362,7 +369,7 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
   @Override
   protected void createSymbolicLink(Path linkPath, PathFragment targetFragment)
       throws IOException {
-    throw new UnsupportedOperationException();
+    writeDelegate.createSymbolicLink(linkPath, targetFragment);
   }
 
   /**
@@ -384,7 +391,8 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
   protected boolean exists(Path path, boolean followSymlinks) {
     Preconditions.checkArgument(
         followSymlinks, "RemoteActionFileSystem doesn't support no-follow: %s", path);
-    return getMetadataUnchecked(path) != null;
+    FileArtifactValue value = getMetadataUnchecked(path);
+    return value != null || writeDelegate.exists(path, followSymlinks);
   }
 
 
@@ -482,7 +490,7 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
       return inputStream;
     }
     if (path.startsWith(outputPathFragment)) {
-      throw new FileNotFoundException(path.getPathString() + " was not found");
+      throw new FileNotFoundException(path.getPathString() + " was not found for stream");
     }
     return getSourcePath(path.asFragment()).getInputStream();
   }
@@ -498,7 +506,7 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
     }
     if (metadata instanceof RemoteFileArtifactValue) {
       RemoteFileArtifactValue remoteFile = (RemoteFileArtifactValue) metadata;
-      Digest digest = DigestUtil.buildDigest(remoteFile.getDigest(), remoteFile.getSize());
+      Digest digest = buildDigest(remoteFile.getDigest(), remoteFile.getSize());
       AbstractRemoteActionCache cache = locations.apply(remoteFile.getLocationIndex());
       if (cache == null) {
         System.out.println("No location for index: " + remoteFile.getLocationIndex());
@@ -611,7 +619,7 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
     {
       OutputMetadata metadataHolder = outputs.getIfPresent(execPath);
       if (metadataHolder != null) {
-        FileArtifactValue metadata = metadataHolder.get();
+        FileArtifactValue metadata = metadataHolder.getArtifact();
         if (metadata != null) {
           return metadata;
         }
@@ -670,7 +678,7 @@ class RemoteActionFileSystem extends AbstractFileSystemWithCustomStat implements
     }
 
     @Nullable
-    public FileArtifactValue get() {
+    public FileArtifactValue getArtifact() {
       return metadata;
     }
 

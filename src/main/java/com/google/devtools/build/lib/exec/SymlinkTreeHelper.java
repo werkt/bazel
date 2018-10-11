@@ -15,6 +15,7 @@ package com.google.devtools.build.lib.exec;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -50,6 +51,7 @@ public final class SymlinkTreeHelper {
   private final Path inputManifest;
   private final Path symlinkTreeRoot;
   private final boolean filesetTree;
+  private final boolean verboseFailures;
 
   /**
    * Creates SymlinkTreeHelper instance. Can be used independently of SymlinkTreeAction.
@@ -58,11 +60,13 @@ public final class SymlinkTreeHelper {
    * @param symlinkTreeRoot the root of the symlink tree to be created
    * @param filesetTree true if this is fileset symlink tree, false if this is a runfiles symlink
    *     tree.
+   * @param verboseFailures whether to print verbose information on failure
    */
-  public SymlinkTreeHelper(Path inputManifest, Path symlinkTreeRoot, boolean filesetTree) {
+  public SymlinkTreeHelper(Path inputManifest, Path symlinkTreeRoot, boolean filesetTree, boolean verboseFailures) {
     this.inputManifest = inputManifest;
     this.symlinkTreeRoot = symlinkTreeRoot;
     this.filesetTree = filesetTree;
+    this.verboseFailures = verboseFailures;
   }
 
   public Path getOutputManifest() {
@@ -128,7 +132,9 @@ public final class SymlinkTreeHelper {
         symlinkTreeRoot.createDirectoryAndParents();
         FileSystemUtils.copyFile(inputManifest, symlinkTreeRoot.getChild("MANIFEST"));
       } catch (IOException e) {
-        throw new UserExecException(e.getMessage(), e);
+        throw new UserExecException(
+            verboseFailures ? Throwables.getStackTraceAsString(e) : e.getMessage(),
+            e);
       }
     }
   }

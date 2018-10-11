@@ -1180,7 +1180,9 @@ public class CppCompileAction extends AbstractAction
         return depSet.process(reply.getContents());
       }
     } catch (IOException e) {
-      e.printStackTrace();
+      if (!(e.getCause() instanceof InterruptedException)) {
+        e.printStackTrace();
+      }
       // Some kind of IO or parse exception--wrap & rethrow it to stop the build.
       throw new ActionExecutionException("error while parsing .d file", e, this, false);
     }

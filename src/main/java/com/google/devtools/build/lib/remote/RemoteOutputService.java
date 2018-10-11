@@ -28,6 +28,7 @@ import com.google.devtools.build.lib.actions.FilesetOutputSymlink;
 import com.google.devtools.build.lib.actions.MetadataConsumer;
 import com.google.devtools.build.lib.actions.cache.MetadataHandler;
 import com.google.devtools.build.lib.events.EventHandler;
+import com.google.devtools.build.lib.exec.SymlinkTreeHelper;
 import com.google.devtools.build.lib.util.AbruptExitException;
 import com.google.devtools.build.lib.vfs.BatchStat;
 import com.google.devtools.build.lib.vfs.FileStatus;
@@ -38,6 +39,7 @@ import com.google.devtools.build.lib.vfs.ModifiedFileSet;
 import com.google.devtools.build.lib.vfs.OutputService;
 import com.google.devtools.build.lib.vfs.Path;
 import com.google.devtools.build.lib.vfs.PathFragment;
+import com.google.devtools.build.lib.vfs.RemoteActionFileSystem;
 import com.google.devtools.build.lib.vfs.Root;
 import com.google.devtools.build.lib.vfs.Symlinks;
 import com.google.devtools.build.skyframe.SkyFunction;
@@ -147,7 +149,14 @@ class RemoteOutputService implements OutputService {
   @Override
   public void createSymlinkTree(Path inputPath, Path outputPath, boolean filesetTree,
       PathFragment symlinkTreeRoot) throws ExecException, InterruptedException {
-    throw new UnsupportedOperationException();
+    // needs some encapsulation
+    SymlinkTreeHelper helper =
+        new SymlinkTreeHelper(
+            inputPath,
+            outputPath.getParentDirectory(),
+            filesetTree,
+            /* verboseFailures=*/ true);
+    helper.createSymlinks(null, null, null, false);
   }
 
   /**

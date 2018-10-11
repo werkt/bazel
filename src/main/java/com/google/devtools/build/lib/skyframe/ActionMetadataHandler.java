@@ -255,23 +255,29 @@ public final class ActionMetadataHandler implements MetadataHandler {
   private FileArtifactValue maybeStoreAdditionalData(
       Artifact artifact, ArtifactFileMetadata data, @Nullable byte[] injectedDigest)
       throws IOException {
+    // FIXME find a way to make data.realFileStateValue() via rootedPath for construction
+    // resolve to the filesystem from (or be discoverable from a root of the) OutputService
+    /*
     if (!data.exists()) {
       // Nonexistent files should only occur before executing an action.
       throw new FileNotFoundException(artifact.prettyPrint() + " does not exist");
     }
-    boolean isFile = data.isFile();
-    if (isFile && !artifact.hasParent() && data.getDigest() != null) {
-      // We do not need to store the FileArtifactValue separately -- the digest is in the file value
-      // and that is all that is needed for this file's metadata.
-      return FileArtifactValue.createNormalFile(data);
+    */
+    if (data.exists()) {
+      boolean isFile = data.isFile();
+      if (isFile && !artifact.hasParent() && data.getDigest() != null) {
+        // We do not need to store the FileArtifactValue separately -- the digest is in the file value
+        // and that is all that is needed for this file's metadata.
+        return FileArtifactValue.createNormalFile(data);
+      }
+      // Unfortunately, the ArtifactFileMetadata does not contain enough information for us to
+      // calculate the corresponding FileArtifactValue -- either the metadata must use the modified
+      // time, which we do not expose in the ArtifactFileMetadata, or the ArtifactFileMetadata didn't
+      // store the digest So we store the metadata separately.
+      // Use the ArtifactFileMetadata's digest if no digest was injected, or if the file can't be
+      // digested.
+      injectedDigest = injectedDigest != null || !isFile ? injectedDigest : data.getDigest();
     }
-    // Unfortunately, the ArtifactFileMetadata does not contain enough information for us to
-    // calculate the corresponding FileArtifactValue -- either the metadata must use the modified
-    // time, which we do not expose in the ArtifactFileMetadata, or the ArtifactFileMetadata didn't
-    // store the digest So we store the metadata separately.
-    // Use the ArtifactFileMetadata's digest if no digest was injected, or if the file can't be
-    // digested.
-    injectedDigest = injectedDigest != null || !isFile ? injectedDigest : data.getDigest();
     FileArtifactValue value = FileArtifactValue.create(artifact, artifactPathResolver, data,
         injectedDigest);
     store.putAdditionalOutputData(artifact, value);
