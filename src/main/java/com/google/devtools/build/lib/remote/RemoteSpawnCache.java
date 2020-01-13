@@ -177,7 +177,7 @@ final class RemoteSpawnCache implements SpawnCache {
             try (SilentCloseable c =
                 prof.profile(ProfilerTask.REMOTE_DOWNLOAD, "download outputs")) {
               remoteCache.download(
-                  result, execRoot, context.getFileOutErr(), context::lockOutputFiles);
+                  result, execRoot, context.getFileOutErr(), context::lockOutputFiles, (size, total, count) -> {});
             }
           } else {
             PathFragment inMemoryOutputPath = getInMemoryOutputPath(spawn);

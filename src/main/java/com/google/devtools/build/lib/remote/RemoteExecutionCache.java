@@ -34,6 +34,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** A {@link RemoteCache} with additional functionality needed for remote execution. */
 public class RemoteExecutionCache extends RemoteCache {
@@ -43,16 +45,33 @@ public class RemoteExecutionCache extends RemoteCache {
     super(protocolImpl, options, digestUtil);
   }
 
-  private void uploadMissing(Map<Digest, Path> files, Map<Digest, ByteString> blobs)
+  private void uploadMissing(Map<Digest, Path> files, Map<Digest, ByteString> blobs, TransferProgress progress)
       throws IOException, InterruptedException {
-    List<ListenableFuture<Void>> uploads = new ArrayList<>();
+    AtomicInteger uploadCount = new AtomicInteger(0);
+    AtomicLong uploadTotal = new AtomicLong(0);
+    AtomicLong uploadedTotal = new AtomicLong(0);
 
+    List<ListenableFuture<Void>> uploads = new ArrayList<>();
     for (Map.Entry<Digest, Path> entry : files.entrySet()) {
-      uploads.add(cacheProtocol.uploadFile(entry.getKey(), entry.getValue()));
+      uploads.add(cacheProtocol.uploadFile(
+          entry.getKey(),
+          entry.getValue(),
+          () -> {
+            uploadCount.incrementAndGet();
+            uploadTotal.addAndGet(entry.getKey().getSizeBytes());
+          },
+          (delta) -> progress.update(uploadedTotal.addAndGet(delta), uploadTotal.get(), uploadCount.get())));
     }
 
     for (Map.Entry<Digest, ByteString> entry : blobs.entrySet()) {
-      uploads.add(cacheProtocol.uploadBlob(entry.getKey(), entry.getValue()));
+      uploads.add(cacheProtocol.uploadBlob(
+          entry.getKey(),
+          entry.getValue(),
+          () -> {
+            uploadCount.incrementAndGet();
+            uploadTotal.addAndGet(entry.getValue().size());
+          },
+          (delta) -> progress.update(uploadedTotal.addAndGet(delta), uploadTotal.get(), uploadCount.get())));
     }
 
     waitForBulkTransfer(uploads, /* cancelRemainingOnInterrupt=*/ false);
@@ -70,7 +89,7 @@ public class RemoteExecutionCache extends RemoteCache {
    * However, remote execution uses a cache to store input files, and that may be a separate
    * end-point from the executor itself, so the functionality lives here.
    */
-  public void ensureInputsPresent(MerkleTree merkleTree, Map<Digest, Message> additionalInputs)
+  public void ensureInputsPresent(MerkleTree merkleTree, Map<Digest, Message> additionalInputs, TransferProgress progress)
       throws IOException, InterruptedException {
     Iterable<Digest> allDigests =
         Iterables.concat(merkleTree.getAllDigests(), additionalInputs.keySet());
@@ -107,6 +126,6 @@ public class RemoteExecutionCache extends RemoteCache {
               missingDigest));
     }
 
-    uploadMissing(filesToUpload, blobsToUpload);
+    uploadMissing(filesToUpload, blobsToUpload, progress);
   }
 }

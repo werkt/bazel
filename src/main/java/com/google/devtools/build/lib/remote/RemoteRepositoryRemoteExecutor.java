@@ -127,7 +127,7 @@ public class RemoteRepositoryRemoteExecutor implements RepositoryRemoteExecutor 
           additionalInputs.put(actionDigest, action);
           additionalInputs.put(commandHash, command);
 
-          remoteCache.ensureInputsPresent(merkleTree, additionalInputs);
+          remoteCache.ensureInputsPresent(merkleTree, additionalInputs, (size, total, count) -> {});
         }
 
         try (SilentCloseable c =
@@ -139,7 +139,7 @@ public class RemoteRepositoryRemoteExecutor implements RepositoryRemoteExecutor 
                   .setSkipCacheLookup(!acceptCached)
                   .build();
 
-          ExecuteResponse response = remoteExecutor.executeRemotely(executeRequest);
+          ExecuteResponse response = remoteExecutor.executeRemotely(executeRequest, (state, name) -> {});
           actionResult = response.getResult();
         }
       }

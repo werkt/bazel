@@ -33,6 +33,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
+import com.google.devtools.build.lib.remote.RemoteCache.TransferProgress;
 import com.google.devtools.build.lib.remote.RemoteRetrier.ProgressiveBackoff;
 import com.google.devtools.build.lib.remote.util.TracingMetadataUtils;
 import io.grpc.CallCredentials;
@@ -56,7 +57,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
@@ -135,7 +138,7 @@ class ByteStreamUploader extends AbstractReferenceCounted {
    */
   public void uploadBlob(HashCode hash, Chunker chunker, boolean forceUpload)
       throws IOException, InterruptedException {
-    uploadBlobs(singletonMap(hash, chunker), forceUpload);
+    uploadBlobs(singletonMap(hash, chunker), forceUpload, (size, total, count) -> {});
   }
 
   /**
@@ -155,12 +158,25 @@ class ByteStreamUploader extends AbstractReferenceCounted {
    *     uploaded, if {@code true} the blob is uploaded.
    * @throws IOException when reading of the {@link Chunker}s input source or uploading fails
    */
-  public void uploadBlobs(Map<HashCode, Chunker> chunkers, boolean forceUpload)
+  public void uploadBlobs(Map<HashCode, Chunker> chunkers, boolean forceUpload, TransferProgress progress)
       throws IOException, InterruptedException {
     List<ListenableFuture<Void>> uploads = new ArrayList<>();
 
+    AtomicInteger uploadCount = new AtomicInteger(0);
+    AtomicLong uploadTotal = new AtomicLong(0);
+    AtomicLong uploadedTotal = new AtomicLong(0);
+
     for (Map.Entry<HashCode, Chunker> chunkerEntry : chunkers.entrySet()) {
-      uploads.add(uploadBlobAsync(chunkerEntry.getKey(), chunkerEntry.getValue(), forceUpload));
+      Chunker chunker = chunkerEntry.getValue();
+      uploads.add(uploadBlobAsync(
+          chunkerEntry.getKey(),
+          chunkerEntry.getValue(),
+          forceUpload,
+          () -> {
+            uploadCount.incrementAndGet();
+            uploadTotal.addAndGet(chunker.getSize());
+          },
+          (delta) -> progress.update(uploadedTotal.addAndGet(delta), uploadTotal.get(), uploadCount.get())));
     }
 
     try {
@@ -216,7 +232,7 @@ class ByteStreamUploader extends AbstractReferenceCounted {
    * @throws IOException when reading of the {@link Chunker}s input source fails
    */
   public ListenableFuture<Void> uploadBlobAsync(
-      HashCode hash, Chunker chunker, boolean forceUpload) {
+      HashCode hash, Chunker chunker, boolean forceUpload, Runnable onUpload, Consumer<Long> onProgress) {
     synchronized (lock) {
       checkState(!isShutdown, "Must not call uploadBlobs after shutdown.");
 
@@ -229,9 +245,10 @@ class ByteStreamUploader extends AbstractReferenceCounted {
         return inProgress;
       }
 
+      onUpload.run();
       ListenableFuture<Void> uploadResult =
           Futures.transform(
-              startAsyncUpload(hash, chunker),
+              startAsyncUpload(hash, chunker, onProgress),
               (v) -> {
                 synchronized (lock) {
                   uploadedBlobs.add(hash);
@@ -277,7 +294,7 @@ class ByteStreamUploader extends AbstractReferenceCounted {
   }
 
   /** Starts a file upload an returns a future representing the upload. */
-  private ListenableFuture<Void> startAsyncUpload(HashCode hash, Chunker chunker) {
+  private ListenableFuture<Void> startAsyncUpload(HashCode hash, Chunker chunker, Consumer<Long> onProgress) {
     try {
       chunker.reset();
     } catch (IOException e) {
@@ -288,7 +305,7 @@ class ByteStreamUploader extends AbstractReferenceCounted {
     String resourceName = uploadResourceName(instanceName, uploadId, hash, chunker.getSize());
     AsyncUpload newUpload =
         new AsyncUpload(channel, callCredentials, callTimeoutSecs, retrier, resourceName, chunker);
-    ListenableFuture<Void> currUpload = newUpload.start();
+    ListenableFuture<Void> currUpload = newUpload.start(onProgress);
     currUpload.addListener(
         () -> {
           if (currUpload.isCancelled()) {
@@ -330,6 +347,7 @@ class ByteStreamUploader extends AbstractReferenceCounted {
     private final Chunker chunker;
 
     private ClientCall<WriteRequest, WriteResponse> call;
+    private long lastReportedProgress = 0;
 
     AsyncUpload(
         Channel channel,
@@ -346,7 +364,7 @@ class ByteStreamUploader extends AbstractReferenceCounted {
       this.chunker = chunker;
     }
 
-    ListenableFuture<Void> start() {
+    ListenableFuture<Void> start(Consumer<Long> onProgress) {
       Context ctx = Context.current();
       ProgressiveBackoff progressiveBackoff = new ProgressiveBackoff(retrier::newBackoff);
       AtomicLong committedOffset = new AtomicLong(0);
@@ -354,7 +372,7 @@ class ByteStreamUploader extends AbstractReferenceCounted {
           retrier.executeAsync(
               () -> {
                 if (committedOffset.get() < chunker.getSize()) {
-                  return ctx.call(() -> callAndQueryOnFailure(committedOffset, progressiveBackoff));
+                  return ctx.call(() -> callAndQueryOnFailure(committedOffset, progressiveBackoff, onProgress));
                 }
                 return Futures.immediateFuture(null);
               },
@@ -381,9 +399,9 @@ class ByteStreamUploader extends AbstractReferenceCounted {
     }
 
     private ListenableFuture<Void> callAndQueryOnFailure(
-        AtomicLong committedOffset, ProgressiveBackoff progressiveBackoff) {
+        AtomicLong committedOffset, ProgressiveBackoff progressiveBackoff, Consumer<Long> onProgress) {
       return Futures.catchingAsync(
-          call(committedOffset),
+          call(committedOffset, onProgress),
           Exception.class,
           (e) -> guardQueryWithSuppression(e, committedOffset, progressiveBackoff),
           Context.current().fixedContextExecutor(MoreExecutors.directExecutor()));
@@ -453,7 +471,7 @@ class ByteStreamUploader extends AbstractReferenceCounted {
           MoreExecutors.directExecutor());
     }
 
-    private ListenableFuture<Void> call(AtomicLong committedOffset) {
+    private ListenableFuture<Void> call(AtomicLong committedOffset, Consumer<Long> onProgress) {
       CallOptions callOptions =
           CallOptions.DEFAULT
               .withCallCredentials(callCredentials)
@@ -469,6 +487,9 @@ class ByteStreamUploader extends AbstractReferenceCounted {
           e.addSuppressed(resetException);
         }
         return Futures.immediateFailedFuture(e);
+      }
+      if (lastReportedProgress != committedOffset.get()) {
+        onProgress.accept(lastReportedProgress - committedOffset.get());
       }
 
       SettableFuture<Void> uploadResult = SettableFuture.create();
@@ -535,6 +556,9 @@ class ByteStreamUploader extends AbstractReferenceCounted {
                           .build();
 
                   call.sendMessage(request);
+                  int chunkSize = chunk.getData().size();
+                  onProgress.accept((long) chunkSize);
+                  lastReportedProgress += chunkSize;
                 } catch (IOException e) {
                   try {
                     chunker.reset();

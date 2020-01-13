@@ -28,6 +28,7 @@ import com.google.devtools.build.lib.actions.ExecException;
 import com.google.devtools.build.lib.actions.LostInputsActionExecutionException;
 import com.google.devtools.build.lib.actions.LostInputsExecException;
 import com.google.devtools.build.lib.actions.MetadataProvider;
+import com.google.devtools.build.lib.actions.RemoteActionEvent;
 import com.google.devtools.build.lib.actions.RunningActionEvent;
 import com.google.devtools.build.lib.actions.SandboxedSpawnStrategy;
 import com.google.devtools.build.lib.actions.SchedulingActionEvent;
@@ -288,6 +289,99 @@ public abstract class AbstractSpawnStrategy implements SandboxedSpawnStrategy {
         }
       }
       return lazyInputMapping;
+    }
+
+    @Override
+    public void remoteCacheCheck(String remoteActionId) {
+      ActionExecutionMetadata action = spawn.getResourceOwner();
+      if (action.getOwner() == null) {
+        return;
+      }
+
+      ExtendedEventHandler eventHandler = actionExecutionContext.getEventHandler();
+      eventHandler.post(
+          new RemoteActionEvent(
+              action,
+              RemoteActionEvent.State.CACHE_CHECKING,
+              remoteActionId,
+              /* uploaded=*/ 0,
+              /* uploadTotal=*/ 0,
+              /* uploadCount=*/ 0,
+              /* downloaded=*/ 0,
+              /* downloadTotal=*/ 0,
+              /* downloadCount=*/ 0,
+              /* operationName=*/ ""));
+    }
+
+    @Override
+    public void remoteState(RemoteActionEvent.State state) {
+      remoteState(state, /* operationName=*/ "");
+    }
+
+    @Override
+    public void remoteState(RemoteActionEvent.State state, String operationName) {
+      ActionExecutionMetadata action = spawn.getResourceOwner();
+      if (action.getOwner() == null) {
+        return;
+      }
+
+      ExtendedEventHandler eventHandler = actionExecutionContext.getEventHandler();
+      eventHandler.post(
+          new RemoteActionEvent(
+              action,
+              state,
+              "",
+              /* uploaded=*/ 0,
+              /* uploadTotal=*/ 0,
+              /* uploadCount=*/ 0,
+              /* downloaded=*/ 0,
+              /* downloadTotal=*/ 0,
+              /* downloadCount=*/ 0,
+              operationName));
+    }
+
+    @Override
+    public void downloaded(long size, long total, int count) {
+      ActionExecutionMetadata action = spawn.getResourceOwner();
+      if (action.getOwner() == null) {
+        return;
+      }
+
+      ExtendedEventHandler eventHandler = actionExecutionContext.getEventHandler();
+      eventHandler.post(
+          new RemoteActionEvent(
+              action,
+              RemoteActionEvent.State.DOWNLOADING_RESULTS,
+              "",
+              /* uploaded=*/ 0,
+              /* uploadTotal=*/ 0,
+              /* uploadCount=*/ 0,
+              /* downloaded=*/ size,
+              /* downloadTotal=*/ total,
+              /* downloadCount=*/ count,
+              /* operationName=*/ ""));
+    }
+
+    @Override
+    public void uploaded(long size, long total, int count) {
+      ActionExecutionMetadata action = spawn.getResourceOwner();
+      if (action.getOwner() == null) {
+        return;
+      }
+
+      ExtendedEventHandler eventHandler = actionExecutionContext.getEventHandler();
+      eventHandler.post(
+          new RemoteActionEvent(
+              action,
+              RemoteActionEvent.State.DOWNLOADING_RESULTS,
+              "",
+              /* uploaded=*/ size,
+              /* uploadTotal=*/ total,
+              /* uploadCount=*/ count,
+              /* downloaded=*/ 0,
+              /* downloadTotal=*/ 0,
+              /* downloadCount=*/ 0,
+              /* operationName=*/ ""));
     }
 
     @Override

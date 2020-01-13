@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.UUID;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 /** A on-disk store for the remote action cache. */
@@ -78,7 +79,7 @@ public class DiskCacheClient implements RemoteCacheClient {
   }
 
   @Override
-  public ListenableFuture<Void> downloadBlob(Digest digest, OutputStream out) {
+  public ListenableFuture<Void> downloadBlob(Digest digest, OutputStream out, Consumer<Long> onProgress) {
     @Nullable
     HashingOutputStream hashOut = verifyDownloads ? digestUtil.newHashingOutputStream(out) : null;
     return Futures.transformAsync(
@@ -117,7 +118,7 @@ public class DiskCacheClient implements RemoteCacheClient {
   public void close() {}
 
   @Override
-  public ListenableFuture<Void> uploadFile(Digest digest, Path file) {
+  public ListenableFuture<Void> uploadFile(Digest digest, Path file, Runnable onUpload, Consumer<Long> onProgress) {
     try (InputStream in = file.getInputStream()) {
       saveFile(digest.getHash(), in);
     } catch (IOException e) {
@@ -127,7 +128,7 @@ public class DiskCacheClient implements RemoteCacheClient {
   }
 
   @Override
-  public ListenableFuture<Void> uploadBlob(Digest digest, ByteString data) {
+  public ListenableFuture<Void> uploadBlob(Digest digest, ByteString data, Runnable onUpload, Consumer<Long> onProgress) {
     try (InputStream in = data.newInput()) {
       saveFile(digest.getHash(), in);
     } catch (IOException e) {

@@ -66,6 +66,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
@@ -265,7 +266,7 @@ public class GrpcCacheClient implements RemoteCacheClient, MissingDigestsFinder 
   }
 
   @Override
-  public ListenableFuture<Void> downloadBlob(Digest digest, OutputStream out) {
+  public ListenableFuture<Void> downloadBlob(Digest digest, OutputStream out, Consumer<Long> onProgress) {
     if (digest.getSizeBytes() == 0) {
       return Futures.immediateFuture(null);
     }
@@ -277,20 +278,21 @@ public class GrpcCacheClient implements RemoteCacheClient, MissingDigestsFinder 
       out = hashOut;
     }
 
-    return downloadBlob(digest, out, hashSupplier);
+    return downloadBlob(digest, out, hashSupplier, onProgress);
   }
 
   private ListenableFuture<Void> downloadBlob(
       Digest digest,
       OutputStream out,
-      @Nullable Supplier<HashCode> hashSupplier) {
+      @Nullable Supplier<HashCode> hashSupplier,
+      Consumer<Long> onProgress) {
     Context ctx = Context.current();
     AtomicLong offset = new AtomicLong(0);
     ProgressiveBackoff progressiveBackoff = new ProgressiveBackoff(retrier::newBackoff);
     return Futures.catchingAsync(
         retrier.executeAsync(
             () ->
-                ctx.call(() -> requestRead(offset, progressiveBackoff, digest, out, hashSupplier)),
+                ctx.call(() -> requestRead(offset, progressiveBackoff, digest, out, hashSupplier, onProgress)),
             progressiveBackoff),
         StatusRuntimeException.class,
         (e) -> Futures.immediateFailedFuture(new IOException(e)),
@@ -310,7 +312,8 @@ public class GrpcCacheClient implements RemoteCacheClient, MissingDigestsFinder 
       ProgressiveBackoff progressiveBackoff,
       Digest digest,
       OutputStream out,
-      @Nullable Supplier<HashCode> hashSupplier) {
+      @Nullable Supplier<HashCode> hashSupplier,
+      Consumer<Long> onProgress) {
     String resourceName = getResourceName(options.remoteInstanceName, digest);
     SettableFuture<Void> future = SettableFuture.create();
     bsAsyncStub()
@@ -325,12 +328,13 @@ public class GrpcCacheClient implements RemoteCacheClient, MissingDigestsFinder 
                 ByteString data = readResponse.getData();
                 try {
                   data.writeTo(out);
-                  offset.addAndGet(data.size());
                 } catch (IOException e) {
                   future.setException(e);
                   // Cancel the call.
                   throw new RuntimeException(e);
                 }
+                offset.addAndGet(data.size());
+                onProgress.accept((long) data.size());
                 // reset the stall backoff because we've made progress or been kept alive
                 progressiveBackoff.reset();
               }
@@ -363,18 +367,22 @@ public class GrpcCacheClient implements RemoteCacheClient, MissingDigestsFinder 
   }
 
   @Override
-  public ListenableFuture<Void> uploadFile(Digest digest, Path path) {
+  public ListenableFuture<Void> uploadFile(Digest digest, Path path, Runnable onUpload, Consumer<Long> onProgress) {
     return uploader.uploadBlobAsync(
         HashCode.fromString(digest.getHash()),
         Chunker.builder().setInput(digest.getSizeBytes(), path).build(),
-        /* forceUpload= */ true);
+        /* forceUpload= */ true,
+        onUpload,
+        onProgress);
   }
 
   @Override
-  public ListenableFuture<Void> uploadBlob(Digest digest, ByteString data) {
+  public ListenableFuture<Void> uploadBlob(Digest digest, ByteString data, Runnable onUpload, Consumer<Long> onProgress) {
     return uploader.uploadBlobAsync(
         HashCode.fromString(digest.getHash()),
         Chunker.builder().setInput(data.toByteArray()).build(),
-        /* forceUpload= */ true);
+        /* forceUpload= */ true,
+        onUpload,
+        onProgress);
   }
 }

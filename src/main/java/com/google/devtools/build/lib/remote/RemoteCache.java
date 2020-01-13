@@ -84,6 +84,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -189,14 +192,14 @@ public class RemoteCache implements AutoCloseable {
     for (Digest digest : digestsToUpload) {
       Path file = digestToFile.get(digest);
       if (file != null) {
-        uploads.add(cacheProtocol.uploadFile(digest, file));
+        uploads.add(cacheProtocol.uploadFile(digest, file, () -> {}, (delta) -> {}));
       } else {
         ByteString blob = digestToBlobs.get(digest);
         if (blob == null) {
           String message = "FindMissingBlobs call returned an unknown digest: " + digest;
           throw new IOException(message);
         }
-        uploads.add(cacheProtocol.uploadBlob(digest, blob));
+        uploads.add(cacheProtocol.uploadBlob(digest, blob, () -> {}, (delta) -> {}));
       }
     }
 
@@ -265,7 +268,7 @@ public class RemoteCache implements AutoCloseable {
     ByteArrayOutputStream bOut = new ByteArrayOutputStream((int) digest.getSizeBytes());
     SettableFuture<byte[]> outerF = SettableFuture.create();
     Futures.addCallback(
-        cacheProtocol.downloadBlob(digest, bOut),
+        cacheProtocol.downloadBlob(digest, bOut, (delta) -> {}),
         new FutureCallback<Void>() {
           @Override
           public void onSuccess(Void aVoid) {
@@ -285,6 +288,10 @@ public class RemoteCache implements AutoCloseable {
     return actualPath.getParentDirectory().getRelative(actualPath.getBaseName() + ".tmp");
   }
 
+  interface TransferProgress {
+    void update(long size, long total, int count);
+  }
+
   /**
    * Download the output files and directory trees of a remotely executed action to the local
    * machine, as well stdin / stdout to the given files.
@@ -300,9 +307,14 @@ public class RemoteCache implements AutoCloseable {
       ActionResult result,
       Path execRoot,
       FileOutErr origOutErr,
-      OutputFilesLocker outputFilesLocker)
+      OutputFilesLocker outputFilesLocker,
+      TransferProgress progress)
       throws ExecException, IOException, InterruptedException {
     ActionResultMetadata metadata = parseActionResultMetadata(result, execRoot);
+
+    AtomicInteger downloadCount = new AtomicInteger(0);
+    AtomicLong downloadTotal = new AtomicLong(0);
+    AtomicLong downloadedTotal = new AtomicLong(0);
 
     List<ListenableFuture<FileMetadata>> downloads =
         Stream.concat(
@@ -312,8 +324,13 @@ public class RemoteCache implements AutoCloseable {
             .map(
                 (file) -> {
                   try {
+                    downloadCount.incrementAndGet();
+                    downloadTotal.addAndGet(file.digest().getSizeBytes());
                     ListenableFuture<Void> download =
-                        downloadFile(toTmpDownloadPath(file.path()), file.digest());
+                        downloadFile(
+                            toTmpDownloadPath(file.path()),
+                            file.digest(),
+                            (delta) -> progress.update(downloadedTotal.addAndGet(delta), downloadTotal.get(), downloadCount.get()));
                     return Futures.transform(download, (d) -> file, directExecutor());
                   } catch (IOException e) {
                     return Futures.<FileMetadata>immediateFailedFuture(e);
@@ -441,7 +458,7 @@ public class RemoteCache implements AutoCloseable {
   }
 
   /** Download a file (that is not a directory). The content is fetched from the digest. */
-  public ListenableFuture<Void> downloadFile(Path path, Digest digest) throws IOException {
+  public ListenableFuture<Void> downloadFile(Path path, Digest digest, Consumer<Long> onProgress) throws IOException {
     Preconditions.checkNotNull(path.getParentDirectory()).createDirectoryAndParents();
     if (digest.getSizeBytes() == 0) {
       // Handle empty file locally.
@@ -451,7 +468,7 @@ public class RemoteCache implements AutoCloseable {
 
     OutputStream out = new LazyFileOutputStream(path);
     SettableFuture<Void> outerF = SettableFuture.create();
-    ListenableFuture<Void> f = cacheProtocol.downloadBlob(digest, out);
+    ListenableFuture<Void> f = cacheProtocol.downloadBlob(digest, out, onProgress);
     Futures.addCallback(
         f,
         new FutureCallback<Void>() {
@@ -494,7 +511,7 @@ public class RemoteCache implements AutoCloseable {
     } else if (result.hasStdoutDigest()) {
       downloads.add(
           Futures.transform(
-              cacheProtocol.downloadBlob(result.getStdoutDigest(), outErr.getOutputStream()),
+              cacheProtocol.downloadBlob(result.getStdoutDigest(), outErr.getOutputStream(), (delta) -> {}),
               (d) -> null,
               directExecutor()));
     }
@@ -508,7 +525,7 @@ public class RemoteCache implements AutoCloseable {
     } else if (result.hasStderrDigest()) {
       downloads.add(
           Futures.transform(
-              cacheProtocol.downloadBlob(result.getStderrDigest(), outErr.getErrorStream()),
+              cacheProtocol.downloadBlob(result.getStderrDigest(), outErr.getErrorStream(), (delta) -> {}),
               (d) -> null,
               directExecutor()));
     }

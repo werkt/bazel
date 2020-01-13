@@ -198,7 +198,9 @@ class ByteStreamBuildEventArtifactUploader implements BuildEventArtifactUploader
               uploader.uploadBlobAsync(
                   HashCode.fromString(path.getDigest().getHash()),
                   chunker,
-                  /* forceUpload=*/ false);
+                  /* forceUpload=*/ false,
+                  /* onUpload=*/ () -> {},
+                  /* onProgress=*/ (delta) -> {});
         } finally {
           ctx.detach(prevCtx);
         }

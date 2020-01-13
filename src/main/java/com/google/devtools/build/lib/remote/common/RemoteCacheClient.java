@@ -23,6 +23,7 @@ import com.google.devtools.build.lib.vfs.Path;
 import com.google.protobuf.ByteString;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.function.Consumer;
 
 /**
  * An interface for a remote caching protocol.
@@ -93,7 +94,7 @@ public interface RemoteCacheClient extends MissingDigestsFinder {
    * @return A Future representing pending completion of the download. If a BLOB for {@code digest}
    *     does not exist in the cache the Future fails with a {@link CacheNotFoundException}.
    */
-  ListenableFuture<Void> downloadBlob(Digest digest, OutputStream out);
+  ListenableFuture<Void> downloadBlob(Digest digest, OutputStream out, Consumer<Long> onProgress);
 
   /**
    * Uploads a {@code file} to the CAS.
@@ -102,7 +103,7 @@ public interface RemoteCacheClient extends MissingDigestsFinder {
    * @param file The file to upload.
    * @return A future representing pending completion of the upload.
    */
-  ListenableFuture<Void> uploadFile(Digest digest, Path file);
+  ListenableFuture<Void> uploadFile(Digest digest, Path file, Runnable onUpload, Consumer<Long> onProgress);
 
   /**
    * Uploads a BLOB to the CAS.
@@ -111,7 +112,7 @@ public interface RemoteCacheClient extends MissingDigestsFinder {
    * @param data The BLOB to upload.
    * @return A future representing pending completion of the upload.
    */
-  ListenableFuture<Void> uploadBlob(Digest digest, ByteString data);
+  ListenableFuture<Void> uploadBlob(Digest digest, ByteString data, Runnable onUpload, Consumer<Long> onProgress);
 
   /** Close resources associated with the remote cache. */
   void close();

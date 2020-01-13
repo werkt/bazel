@@ -14,12 +14,14 @@
 
 package com.google.devtools.build.lib.remote;
 
+import build.bazel.remote.execution.v2.ExecuteOperationMetadata;
 import build.bazel.remote.execution.v2.ExecuteRequest;
 import build.bazel.remote.execution.v2.ExecuteResponse;
 import build.bazel.remote.execution.v2.ExecutionGrpc;
 import build.bazel.remote.execution.v2.ExecutionGrpc.ExecutionBlockingStub;
 import build.bazel.remote.execution.v2.WaitExecutionRequest;
 import com.google.common.base.Preconditions;
+import com.google.devtools.build.lib.actions.RemoteActionEvent;
 import com.google.devtools.build.lib.concurrent.ThreadSafety.ThreadSafe;
 import com.google.devtools.build.lib.remote.options.RemoteOptions;
 import com.google.devtools.build.lib.remote.util.TracingMetadataUtils;
@@ -32,6 +34,7 @@ import java.io.IOException;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import javax.annotation.Nullable;
 
 /** A remote work executor that uses gRPC for communicating the work, inputs and outputs. */
@@ -87,6 +90,21 @@ class GrpcRemoteExecutor {
     return null;
   }
 
+  private void updateRemoteState(Operation op, BiConsumer<RemoteActionEvent.State, String> remoteState) {
+    try {
+      ExecuteOperationMetadata metadata = op.getMetadata().unpack(ExecuteOperationMetadata.class);
+      switch (metadata.getStage()) {
+        case UNKNOWN: remoteState.accept(RemoteActionEvent.State.EXECUTE_REQUESTED, op.getName()); break;
+        case CACHE_CHECK: remoteState.accept(RemoteActionEvent.State.EXECUTE_CACHE_CHECKING, op.getName()); break;
+        case QUEUED: remoteState.accept(RemoteActionEvent.State.EXECUTE_QUEUED, op.getName()); break;
+        case EXECUTING: remoteState.accept(RemoteActionEvent.State.EXECUTING, op.getName()); break;
+        case COMPLETED: remoteState.accept(RemoteActionEvent.State.EXECUTE_COMPLETED, op.getName()); break;
+      }
+    } catch (IOException e) {
+      // ignore
+    }
+  }
+
   /* Execute has two components: the Execute call and (optionally) the WaitExecution call.
    * This is the simple flow without any errors:
    *
@@ -105,7 +123,7 @@ class GrpcRemoteExecutor {
    *   are completed and failed; however, some of these errors may be retriable. These errors should
    *   trigger a retry of the Execute call, resulting in a new Operation.
    * */
-  public ExecuteResponse executeRemotely(ExecuteRequest request)
+  public ExecuteResponse executeRemotely(ExecuteRequest request, BiConsumer<RemoteActionEvent.State, String> remoteState)
       throws IOException, InterruptedException {
     // Execute has two components: the Execute call and (optionally) the WaitExecution call.
     // This is the simple flow without any errors:
@@ -151,6 +169,7 @@ class GrpcRemoteExecutor {
                 while (replies.hasNext()) {
                   Operation o = replies.next();
                   operation.set(o);
+                  updateRemoteState(o, remoteState);
                   waitExecution.set(!operation.get().getDone());
                   ExecuteResponse r = getOperationResponse(o);
                   if (r != null) {

@@ -43,10 +43,12 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ListeningScheduledExecutorService;
+import com.google.common.util.concurrent.RateLimiter;
 import com.google.devtools.build.lib.actions.ActionInput;
 import com.google.devtools.build.lib.actions.Artifact;
 import com.google.devtools.build.lib.actions.CommandLines.ParamFileActionInput;
 import com.google.devtools.build.lib.actions.ExecException;
+import com.google.devtools.build.lib.actions.RemoteActionEvent;
 import com.google.devtools.build.lib.actions.Spawn;
 import com.google.devtools.build.lib.actions.SpawnMetrics;
 import com.google.devtools.build.lib.actions.SpawnResult;
@@ -210,6 +212,7 @@ public class RemoteSpawnRunner implements SpawnRunner {
     boolean acceptCachedResult = remoteOptions.remoteAcceptCached && spawnCacheableRemotely;
 
     context.report(ProgressStatus.EXECUTING, getName());
+    context.remoteState(RemoteActionEvent.State.COMPOSITING);
     RemoteOutputsMode remoteOutputsMode = remoteOptions.remoteOutputsMode;
     SortedMap<PathFragment, ActionInput> inputMap = context.getInputMapping(true);
     final MerkleTree merkleTree =
@@ -251,6 +254,7 @@ public class RemoteSpawnRunner implements SpawnRunner {
       try {
         // Try to lookup the action in the action cache.
         ActionResult cachedResult;
+        context.remoteCacheCheck(digestUtil.toString(actionKey.getDigest()));
         try (SilentCloseable c = prof.profile(ProfilerTask.REMOTE_CACHE_CHECK, "check cache hit")) {
           cachedResult =
               acceptCachedResult
@@ -317,7 +321,13 @@ public class RemoteSpawnRunner implements SpawnRunner {
                 additionalInputs.put(commandHash, command);
                 Duration networkTimeStart = networkTime.getDuration();
                 Stopwatch uploadTime = Stopwatch.createStarted();
-                remoteCache.ensureInputsPresent(merkleTree, additionalInputs);
+                context.remoteState(RemoteActionEvent.State.FINDING_MISSING_INPUTS);
+                final RateLimiter rateLimiter = RateLimiter.create(10.0);
+                remoteCache.ensureInputsPresent(merkleTree, additionalInputs, (size, total, count) -> {
+                  if (rateLimiter.tryAcquire()) {
+                    context.uploaded(size, total, count);
+                  }
+                });
                 // subtract network time consumed here to ensure wall clock during upload is not
                 // double
                 // counted, and metrics time computation does not exceed total time
@@ -326,7 +336,7 @@ public class RemoteSpawnRunner implements SpawnRunner {
               }
               ExecuteResponse reply;
               try (SilentCloseable c = prof.profile(REMOTE_EXECUTION, "execute remotely")) {
-                reply = remoteExecutor.executeRemotely(request);
+                reply = remoteExecutor.executeRemotely(request, context::remoteState);
               }
 
               FileOutErr outErr = context.getFileOutErr();
@@ -438,10 +448,15 @@ public class RemoteSpawnRunner implements SpawnRunner {
     InMemoryOutput inMemoryOutput = null;
     Duration networkTimeStart = networkTime.get();
     Stopwatch fetchTime = Stopwatch.createStarted();
+    final RateLimiter rateLimiter = RateLimiter.create(10.0);
     if (downloadOutputs) {
       try (SilentCloseable c = Profiler.instance().profile(REMOTE_DOWNLOAD, "download outputs")) {
         remoteCache.download(
-            actionResult, execRoot, context.getFileOutErr(), context::lockOutputFiles);
+            actionResult, execRoot, context.getFileOutErr(), context::lockOutputFiles, (downloaded, total, count) -> {
+              if (rateLimiter.tryAcquire()) {
+                context.downloaded(downloaded, total, count);
+              }
+            });
       }
     } else {
       PathFragment inMemoryOutputPath = getInMemoryOutputPath(spawn);
@@ -518,7 +533,7 @@ public class RemoteSpawnRunner implements SpawnRunner {
           logPath = parent.getRelative(e.getKey());
           logCount++;
           try {
-            getFromFuture(remoteCache.downloadFile(logPath, e.getValue().getDigest()));
+            getFromFuture(remoteCache.downloadFile(logPath, e.getValue().getDigest(), (delta) -> {}));
           } catch (IOException ex) {
             reportOnce(
                 Event.warn(
@@ -593,7 +608,7 @@ public class RemoteSpawnRunner implements SpawnRunner {
         if (resp.hasResult()) {
           try {
             // We try to download all (partial) results even on server error, for debuggability.
-            remoteCache.download(resp.getResult(), execRoot, outErr, context::lockOutputFiles);
+            remoteCache.download(resp.getResult(), execRoot, outErr, context::lockOutputFiles, (size, total, count) -> {});
           } catch (BulkTransferException bulkTransferEx) {
             exception.addSuppressed(bulkTransferEx);
           }

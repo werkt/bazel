@@ -173,7 +173,7 @@ class RemoteActionInputFetcher implements ActionInputPrefetcher {
         Context prevCtx = ctx.attach();
         try {
           Digest digest = DigestUtil.buildDigest(metadata.getDigest(), metadata.getSize());
-          download = remoteCache.downloadFile(path, digest);
+          download = remoteCache.downloadFile(path, digest, (delta) -> {});
           downloadsInProgress.put(path, download);
           Futures.addCallback(
               download,

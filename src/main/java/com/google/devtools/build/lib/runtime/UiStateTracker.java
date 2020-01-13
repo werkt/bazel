@@ -29,6 +29,7 @@ import com.google.devtools.build.lib.actions.ActionExecutionMetadata;
 import com.google.devtools.build.lib.actions.ActionScanningCompletedEvent;
 import com.google.devtools.build.lib.actions.ActionStartedEvent;
 import com.google.devtools.build.lib.actions.Artifact;
+import com.google.devtools.build.lib.actions.RemoteActionEvent;
 import com.google.devtools.build.lib.actions.RunningActionEvent;
 import com.google.devtools.build.lib.actions.ScanningActionEvent;
 import com.google.devtools.build.lib.actions.SchedulingActionEvent;
@@ -182,8 +183,33 @@ class UiStateTracker {
      */
     final ActionExecutionMetadata action;
 
+    RemoteActionEvent.State state = RemoteActionEvent.State.UNKNOWN;
+
+    String remoteActionId;
+
     /** Timestamp of the last state change. */
     long nanoStartTime;
+
+    /** Timestamp of the download sequence. */
+    long nanoDownloadStartTime;
+
+    /** Timestamp of the upload sequence. */
+    long nanoUploadStartTime;
+
+    /** bytes downloaded since start time */
+    long downloaded;
+
+    long downloadTotal;
+
+    int downloadCount;
+
+    long uploaded;
+
+    long uploadTotal;
+
+    int uploadCount;
+
+    String operationName = "";
 
     /**
      * Whether this action is in the scanning state or not.
@@ -228,6 +254,60 @@ class UiStateTracker {
       int activeStrategies =
           Integer.bitCount(schedulingStrategiesBitmap) + Integer.bitCount(runningStrategiesBitmap);
       return activeStrategies > 0 ? activeStrategies : 1;
+    }
+
+    /** counter of download rate for this action */
+    synchronized float getDownloadRate(long now) {
+      if (nanoDownloadStartTime == 0) {
+        return -1;
+      }
+      float rate = downloaded / ((now - nanoDownloadStartTime) / 1e9f);
+      return rate;
+    }
+
+    /** counter of download rate for this action */
+    synchronized float getUploadRate(long now) {
+      if (nanoUploadStartTime == 0) {
+        return -1;
+      }
+      float rate = uploaded / ((now - nanoUploadStartTime) / 1e9f);
+      return rate;
+    }
+
+    synchronized long getDownloaded() {
+      return downloaded;
+    }
+
+    synchronized long getDownloadTotal() {
+      return downloadTotal;
+    }
+
+    synchronized long getDownloadCount() {
+      return downloadCount;
+    }
+
+    synchronized long getUploaded() {
+      return uploaded;
+    }
+
+    synchronized long getUploadTotal() {
+      return uploadTotal;
+    }
+
+    synchronized long getUploadCount() {
+      return uploadCount;
+    }
+
+    synchronized String getRemoteActionId() {
+      return remoteActionId;
+    }
+
+    synchronized RemoteActionEvent.State getState() {
+      return state;
+    }
+
+    synchronized String getOperationName() {
+      return operationName;
     }
 
     /**
@@ -283,6 +363,44 @@ class UiStateTracker {
       schedulingStrategiesBitmap &= ~id;
       runningStrategiesBitmap |= id;
       nanoStartTime = nanoChangeTime;
+    }
+
+    synchronized void updateRemote(
+        long nanoChangeTime,
+        RemoteActionEvent.State state,
+        String remoteActionId,
+        long uploaded,
+        long uploadTotal,
+        int uploadCount,
+        long downloaded,
+        long downloadTotal,
+        int downloadCount,
+        String operationName) {
+      this.state = state;
+      this.remoteActionId = remoteActionId;
+      this.uploaded = uploaded;
+      this.uploadTotal = uploadTotal;
+      this.uploadCount = uploadCount;
+      if (state == RemoteActionEvent.State.UPLOADING_INPUTS) {
+        if (nanoUploadStartTime == -1) {
+          this.nanoUploadStartTime = nanoChangeTime;
+        }
+      } else {
+        this.nanoUploadStartTime = -1;
+      }
+      this.downloaded = downloaded;
+      this.downloadTotal = downloadTotal;
+      this.downloadCount = downloadCount;
+      if (state == RemoteActionEvent.State.DOWNLOADING_RESULTS) {
+        if (nanoDownloadStartTime == -1) {
+          this.nanoDownloadStartTime = nanoChangeTime;
+        }
+      } else {
+        this.nanoDownloadStartTime = -1;
+      }
+      if (operationName != "") {
+        this.operationName = operationName;
+      }
     }
 
     /** Generates a human-readable description of this action's state. */
@@ -517,6 +635,23 @@ class UiStateTracker {
     getActionState(action, actionId, now).setRunning(event.getStrategy(), now);
   }
 
+  void remoteAction(RemoteActionEvent event) {
+    ActionExecutionMetadata action = event.getActionMetadata();
+    Artifact actionId = event.getActionMetadata().getPrimaryOutput();
+    long now = clock.nanoTime();
+    getActionState(action, actionId, now).updateRemote(
+        now,
+        event.getState(),
+        event.getRemoteActionId(),
+        event.getUploaded(),
+        event.getUploadTotal(),
+        event.getUploadCount(),
+        event.getDownloaded(),
+        event.getDownloadTotal(),
+        event.getDownloadCount(),
+        event.getOperationName());
+  }
+
   void actionCompletion(ActionScanningCompletedEvent event) {
     Action action = event.getAction();
     Artifact actionId = action.getPrimaryOutput();
@@ -692,6 +827,48 @@ class UiStateTracker {
     }
     if (strategy != null) {
       postfix += " " + strategy;
+    }
+    switch (actionState.getState()) {
+      case COMPOSITING:
+        postfix += " compositing";
+        break;
+      case CACHE_CHECKING:
+        postfix += " checking cached action " + actionState.getRemoteActionId();
+        break;
+      case FINDING_MISSING_INPUTS:
+        postfix += " finding missing inputs";
+        break;
+      case UPLOADING_INPUTS:
+        postfix += String.format(
+            " %d uploads %s/%s %sbps",
+            actionState.getUploadCount(),
+            prettySize(actionState.getUploaded()),
+            prettySize(actionState.getUploadTotal()),
+            rate(actionState.getUploadRate(nanoTime)));
+        break;
+      case EXECUTE_REQUESTED:
+        postfix += " requested op " + actionState.getOperationName();
+        break;
+      case EXECUTE_CACHE_CHECKING:
+        postfix += " checking cache op " + actionState.getOperationName();
+        break;
+      case EXECUTE_QUEUED:
+        postfix += " queued op " + actionState.getOperationName();
+        break;
+      case EXECUTING:
+        postfix += " executing op " + actionState.getOperationName();
+        break;
+      case EXECUTE_COMPLETED:
+        postfix += " execution completed op " + actionState.getOperationName();
+        break;
+      case DOWNLOADING_RESULTS:
+        postfix += String.format(
+            " %d downloads %s/%s %sbps",
+            actionState.getDownloadCount(),
+            prettySize(actionState.getDownloaded()),
+            prettySize(actionState.getDownloadTotal()),
+            rate(actionState.getDownloadRate(nanoTime)));
+        break;
     }
 
     String message = action.getProgressMessage();
@@ -909,6 +1086,43 @@ class UiStateTracker {
       return true;
     }
     return false;
+  }
+
+  private boolean maybeShowDownloadRate(AnsiTerminalWriter terminalWriter) throws IOException {
+    float downloadRate = 0.0f;
+    int downloadingCount = 0;
+    for (ActionState actionState : activeActions.values()) {
+      float actionDownloadRate = actionState.getDownloadRate(clock.nanoTime());
+      if (actionDownloadRate >= 0.0) {
+        downloadingCount++;
+        downloadRate += actionDownloadRate;
+      }
+    }
+
+    if (downloadingCount > 0) {
+      terminalWriter.normal().append(String.format("; %d downloading, %sbps", downloadingCount, rate(downloadRate * 8)));
+    }
+    return downloadingCount > 0;
+  }
+
+  private static String prettySize(long bytes) {
+    int unit = 1024;
+    if (bytes < unit) {
+      return String.format("%dB", bytes);
+    }
+    int exp = (int) (Math.log(bytes) / Math.log(unit));
+    char pre = "kMGTPE".charAt(exp-1);
+    return String.format("%.1f%ciB", bytes / Math.pow(unit, exp), pre);
+  }
+
+  private static String rate(float scalar) {
+    int unit = 1000;
+    if (scalar < unit) {
+      return String.format("%d", (int) scalar);
+    }
+    int exp = (int) (Math.log(scalar) / Math.log(unit));
+    char pre = "kMGTPE".charAt(exp-1);
+    return String.format("%.1f%c", scalar / Math.pow(unit, exp), pre);
   }
 
   /**
@@ -1160,6 +1374,7 @@ class UiStateTracker {
       } else {
         String statusMessage = countActions();
         terminalWriter.normal().append(" " + statusMessage);
+        maybeShowDownloadRate(terminalWriter);
         maybeShowRecentTest(
             terminalWriter, shortVersion, targetWidth - terminalWriter.getPosition());
         printActionState(terminalWriter);

@@ -82,6 +82,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
@@ -441,7 +442,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
   }
 
   @Override
-  public ListenableFuture<Void> downloadBlob(Digest digest, OutputStream out) {
+  public ListenableFuture<Void> downloadBlob(Digest digest, OutputStream out, Consumer<Long> onProgress) {
     final HashingOutputStream hashOut =
         verifyDownloads ? digestUtil.newHashingOutputStream(out) : null;
     return Futures.transformAsync(
@@ -628,7 +629,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
   }
 
   @Override
-  public ListenableFuture<Void> uploadFile(Digest digest, Path file) {
+  public ListenableFuture<Void> uploadFile(Digest digest, Path file, Runnable onUpload, Consumer<Long> onProgress) {
     try (InputStream in = file.getInputStream()) {
       uploadBlocking(digest.getHash(), digest.getSizeBytes(), in, /* casUpload= */ true);
     } catch (IOException | InterruptedException e) {
@@ -638,7 +639,7 @@ public final class HttpCacheClient implements RemoteCacheClient {
   }
 
   @Override
-  public ListenableFuture<Void> uploadBlob(Digest digest, ByteString data) {
+  public ListenableFuture<Void> uploadBlob(Digest digest, ByteString data, Runnable onUpload, Consumer<Long> onProgress) {
     try (InputStream in = data.newInput()) {
       uploadBlocking(digest.getHash(), digest.getSizeBytes(), in, /* casUpload= */ true);
     } catch (IOException | InterruptedException e) {

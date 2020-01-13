@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 
 /**
  * A {@link RemoteCacheClient} implementation combining two blob stores. A local disk blob store and
@@ -63,11 +64,11 @@ public final class DiskAndRemoteCacheClient implements RemoteCacheClient {
   }
 
   @Override
-  public ListenableFuture<Void> uploadFile(Digest digest, Path file) {
+  public ListenableFuture<Void> uploadFile(Digest digest, Path file, Runnable onUpload, Consumer<Long> onProgress) {
     try {
-      diskCache.uploadFile(digest, file).get();
+      diskCache.uploadFile(digest, file, onUpload, onProgress).get();
       if (!options.incompatibleRemoteResultsIgnoreDisk || options.remoteUploadLocalResults) {
-        remoteCache.uploadFile(digest, file).get();
+        remoteCache.uploadFile(digest, file, onUpload, onProgress).get();
       }
     } catch (ExecutionException e) {
       return Futures.immediateFailedFuture(e.getCause());
@@ -78,11 +79,11 @@ public final class DiskAndRemoteCacheClient implements RemoteCacheClient {
   }
 
   @Override
-  public ListenableFuture<Void> uploadBlob(Digest digest, ByteString data) {
+  public ListenableFuture<Void> uploadBlob(Digest digest, ByteString data, Runnable onUpload, Consumer<Long> onProgress) {
     try {
-      diskCache.uploadBlob(digest, data).get();
+      diskCache.uploadBlob(digest, data, onUpload, onProgress).get();
       if (!options.incompatibleRemoteResultsIgnoreDisk || options.remoteUploadLocalResults) {
-        remoteCache.uploadBlob(digest, data).get();
+        remoteCache.uploadBlob(digest, data, onUpload, onProgress).get();
       }
     } catch (ExecutionException e) {
       return Futures.immediateFailedFuture(e.getCause());
@@ -127,9 +128,9 @@ public final class DiskAndRemoteCacheClient implements RemoteCacheClient {
   }
 
   @Override
-  public ListenableFuture<Void> downloadBlob(Digest digest, OutputStream out) {
+  public ListenableFuture<Void> downloadBlob(Digest digest, OutputStream out, Consumer<Long> onProgress) {
     if (diskCache.contains(digest)) {
-      return diskCache.downloadBlob(digest, out);
+      return diskCache.downloadBlob(digest, out, onProgress);
     }
 
     Path tempPath = newTempPath();
@@ -142,7 +143,7 @@ public final class DiskAndRemoteCacheClient implements RemoteCacheClient {
 
     if (!options.incompatibleRemoteResultsIgnoreDisk || options.remoteAcceptCached) {
       ListenableFuture<Void> download =
-          closeStreamOnError(remoteCache.downloadBlob(digest, tempOut), tempOut);
+          closeStreamOnError(remoteCache.downloadBlob(digest, tempOut, onProgress), tempOut);
       ListenableFuture<Void> saveToDiskAndTarget =
           Futures.transformAsync(
               download,
@@ -153,7 +154,7 @@ public final class DiskAndRemoteCacheClient implements RemoteCacheClient {
                 } catch (IOException e) {
                   return Futures.immediateFailedFuture(e);
                 }
-                return diskCache.downloadBlob(digest, out);
+                return diskCache.downloadBlob(digest, out, onProgress);
               },
               MoreExecutors.directExecutor());
       return saveToDiskAndTarget;

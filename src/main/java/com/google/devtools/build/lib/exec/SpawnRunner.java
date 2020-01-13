@@ -21,6 +21,7 @@ import com.google.devtools.build.lib.actions.ExecException;
 import com.google.devtools.build.lib.actions.FutureSpawn;
 import com.google.devtools.build.lib.actions.LostInputsExecException;
 import com.google.devtools.build.lib.actions.MetadataProvider;
+import com.google.devtools.build.lib.actions.RemoteActionEvent;
 import com.google.devtools.build.lib.actions.Spawn;
 import com.google.devtools.build.lib.actions.SpawnResult;
 import com.google.devtools.build.lib.actions.cache.MetadataInjector;
@@ -203,6 +204,16 @@ public interface SpawnRunner {
 
     /** Reports a progress update to the Spawn strategy. */
     void report(ProgressStatus state, String name);
+
+    void remoteCacheCheck(String remoteActionId);
+
+    void remoteState(RemoteActionEvent.State state);
+
+    void remoteState(RemoteActionEvent.State state, String operationName);
+
+    void downloaded(long size, long total, int count);
+
+    void uploaded(long size, long total, int count);
 
     /**
      * Returns a {@link MetadataInjector} that allows a caller to inject metadata about spawn
