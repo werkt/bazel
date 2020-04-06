@@ -1,3 +1,28 @@
+## Release 3.0.0-uber (2020-04-06)
+
+```
+Baseline: 3c7cc747ac653dca8b88a9e43726a794e2c27a9c
+
+Cherry picks:
+
+   + 4ee52dbdb0351aa2f9c8340e3bacd9a6b36e6a77:
+     Use prefix encoding for paths.
+   + 9ada0fe73ad3cd0e40c85eb82037ff7ff7f44ef9:
+     Avoid file operations in the sandbox creation critical path.
+   + 80a2d7cc5f8a22816934dcd2ca9bdf87050f3d9f:
+     Implementation (but not plumbing) of the gRPC remote downloader
+   + 586eabf419972c74fdd5fef328cfe9a259e035ed:
+     Implement RemoteDownloader w/ `--experimental_remote_downloader`
+   + 2201827cc172484b32499017a9a526571bb0f5c8:
+     Release 3.0.0 (2020-04-06)
+   + eca40ab735e16155b2a460759e249da0ea23c1c7:
+     BulkTransferException for remote up/download
+   + aa700e7786a8ee1623913fbd2f8868f3c14c2794:
+     Personal release scripts
+```
+
+This release contains contributions from many people at Google, as well as George Gensure, John Millikin.
+
 ## Release 3.0.0 (2020-04-06)
 
 ```
