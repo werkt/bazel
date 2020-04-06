@@ -23,6 +23,8 @@ Cherry picks:
      Release 3.0.0-uber (2020-04-06)
    + 38895b84f94adefca11a563df7df5ebcc7861db5:
      Release 3.0.0-uber (2020-04-06)
+   + 6b74783817f759b1990278359511c6716133fb6f:
+     Release 3.0.0-uber (2020-04-06)
 ```
 
 This release contains contributions from many people at Google, as well as George Gensure, John Millikin.
