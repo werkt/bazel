@@ -19,6 +19,8 @@ Cherry picks:
      BulkTransferException for remote up/download
    + aa700e7786a8ee1623913fbd2f8868f3c14c2794:
      Personal release scripts
+   + 2e2edbea44596d9301e1b69ba42da3160a1ed16a:
+     Release 3.0.0-uber (2020-04-06)
 ```
 
 This release contains contributions from many people at Google, as well as George Gensure, John Millikin.
