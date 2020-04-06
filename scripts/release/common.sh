@@ -57,14 +57,14 @@ function git_commit_msg() {
 # Extract the release candidate number from the git branch name
 function get_release_candidate() {
   # Match rcX and return X
-  git_get_branch 2>/dev/null | grep -Po "(?<=rc)([0-9]|\.)*$" || true
+  git_get_branch 2>/dev/null | grep -Po "(?<=-rc)([0-9]|\.)*$" || true
 }
 
 # Extract the release name from the git branch name
 function get_release_name() {
   # Match branch name release-X.X.X-rcY and return X.X.X
   # or match tag name X.X.X and return X.X.X
-  git_get_branch 2>/dev/null | grep -Po "(?<=release-)([0-9]|\.)*(?=rc)" || git_get_tag | grep -Po "^([0-9]|\.)*$" || true
+  git_get_branch 2>/dev/null | grep -Po "(?<=release-)(.)*(?=-rc)" || git_get_tag | grep -Po "^(.)*$" || true
 }
 
 # Get the list of commit hashes between two revisions
@@ -80,7 +80,7 @@ function get_full_release_name() {
   local name="$(get_release_name "$@")"
   local rc="$(get_release_candidate "$@")"
   if [ -n "${rc}" ]; then
-    echo "${name}rc${rc}"
+    echo "${name}-rc${rc}"
   else
     echo "${name}"
   fi

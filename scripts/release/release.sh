@@ -22,10 +22,10 @@ set -eu
 : ${EDITOR=vi}
 
 # Repositories to push the release branch and the release tag.
-RELEASE_REPOSITORY="git@github.com:bazelbuild/bazel"
+RELEASE_REPOSITORY="git@github.com:werkt/bazel"
 
 # Repositories to push the master branch.
-MASTER_REPOSITORY="https://bazel.googlesource.com/bazel"
+MASTER_REPOSITORY=${RELEASE_REPOSITORY}
 
 # Author of the release commits.
 RELEASE_AUTHOR="Bazel Release System <noreply@google.com>"
@@ -139,7 +139,7 @@ function __create_release() {
   local release_name="$1"
   local baseline="$2"
   shift 2
-  local branch_name="release-${release_name}rc${force_rc}"
+  local branch_name="release-${release_name}-rc${force_rc}"
 
   # Fetch everything from remote repositories to avoid conflicts
   git fetch -f "${RELEASE_REPOSITORY}"
@@ -179,7 +179,7 @@ function __push_release_candidate() {
 function __cleanup_branches() {
   local tag_name=$1
   echo "Destroying the release branches for release ${tag_name}"
-  for branch in $(git branch | grep -Po "release-${tag_name}rc([0-9])*")
+  for branch in $(git branch | grep -Po "release-${tag_name}-rc([0-9])*")
   do
     echo "Deleting ${branch}"
     git branch -D "${branch}" &>/dev/null || true
