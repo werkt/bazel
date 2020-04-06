@@ -21,6 +21,8 @@ Cherry picks:
      Personal release scripts
    + 2e2edbea44596d9301e1b69ba42da3160a1ed16a:
      Release 3.0.0-uber (2020-04-06)
+   + 38895b84f94adefca11a563df7df5ebcc7861db5:
+     Release 3.0.0-uber (2020-04-06)
 ```
 
 This release contains contributions from many people at Google, as well as George Gensure, John Millikin.
