@@ -569,7 +569,7 @@ genrule(
     name = "filter_netty_dynamic_libs",
     srcs = ["netty_tcnative/netty-tcnative-boringssl-static-2.0.24.Final.jar"],
     outs = ["netty_tcnative/netty-tcnative-filtered.jar"],
-    cmd = "cp $< $@ && " +
+    cmd = "cp $< $@ && chmod +w $@ && " +
           # End successfully if there is nothing to be deleted from the archive
           "if [ -n '" + UNNECESSARY_DYNAMIC_LIBRARIES + "' ]; then " +
           "zip -qd $@ " + UNNECESSARY_DYNAMIC_LIBRARIES + "; fi",
