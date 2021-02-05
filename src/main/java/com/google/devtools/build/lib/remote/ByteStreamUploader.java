@@ -501,6 +501,7 @@ class ByteStreamUploader extends AbstractReferenceCounted {
         }
         return Futures.immediateFailedFuture(e);
       }
+      long callOffset = committedOffset.get();
 
       SettableFuture<Void> uploadResult = SettableFuture.create();
       ClientCall.Listener<WriteResponse> callListener =
@@ -508,6 +509,7 @@ class ByteStreamUploader extends AbstractReferenceCounted {
 
             private final WriteRequest.Builder requestBuilder = WriteRequest.newBuilder();
             private boolean callHalfClosed = false;
+            private boolean responded = false;
 
             void halfClose() {
               // call.halfClose() may only be called once. Guard against it being called more
@@ -524,13 +526,25 @@ class ByteStreamUploader extends AbstractReferenceCounted {
             public void onMessage(WriteResponse response) {
               // upload was completed either by us or someone else
               committedOffset.set(response.getCommittedSize());
+              responded = true;
               halfClose();
             }
 
             @Override
             public void onClose(Status status, Metadata trailers) {
               if (status.isOk()) {
-                uploadResult.set(null);
+                if (committedOffset.get() == chunker.getSize()) {
+                  uploadResult.set(null);
+                } else {
+                  String message = "committed_size";
+                  if (responded) {
+                    message += " " + committedOffset.get() + " did not match ";
+                  } else {
+                    message += " was not received, last was " + committedOffset.get();
+                  }
+                  message += " for write " + resourceName + " of size " + chunker.getSize() + " at offset " + callOffset;
+                  uploadResult.setException(Status.DATA_LOSS.withDescription(message).asRuntimeException());
+                }
               } else {
                 uploadResult.setException(status.asRuntimeException());
               }
