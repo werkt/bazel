@@ -351,21 +351,25 @@ public class GrpcCacheClient implements RemoteCacheClient, MissingDigestsFinder 
                 .build(),
             new StreamObserver<ReadResponse>() {
               @Override
-              public void onNext(ReadResponse readResponse) {
-                ByteString data = readResponse.getData();
-                try {
-                  data.writeTo(out);
-                  offset.addAndGet(data.size());
-                } catch (IOException e) {
-                  // Cancel the call.
-                  throw new RuntimeException(e);
+              public synchronized void onNext(ReadResponse readResponse) {
+                if (future.isDone()) {
+                  logger.atWarning().log("Ignoring response after request completed");
+                } else {
+                  ByteString data = readResponse.getData();
+                  try {
+                    data.writeTo(out);
+                    offset.addAndGet(data.size());
+                  } catch (IOException e) {
+                    // Cancel the call.
+                    throw new RuntimeException(e);
+                  }
+                  // reset the stall backoff because we've made progress or been kept alive
+                  progressiveBackoff.reset();
                 }
-                // reset the stall backoff because we've made progress or been kept alive
-                progressiveBackoff.reset();
               }
 
               @Override
-              public void onError(Throwable t) {
+              public synchronized void onError(Throwable t) {
                 Status status = Status.fromThrowable(t);
                 if (status.getCode() == Status.Code.NOT_FOUND) {
                   future.setException(new CacheNotFoundException(digest));
@@ -375,7 +379,7 @@ public class GrpcCacheClient implements RemoteCacheClient, MissingDigestsFinder 
               }
 
               @Override
-              public void onCompleted() {
+              public synchronized void onCompleted() {
                 try {
                   if (digestSupplier != null) {
                     Utils.verifyBlobContents(digest, digestSupplier.get());
