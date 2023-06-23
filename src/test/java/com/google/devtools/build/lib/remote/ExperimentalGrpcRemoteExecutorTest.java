@@ -260,7 +260,7 @@ public class ExperimentalGrpcRemoteExecutorTest {
     executionService.whenExecute(DUMMY_REQUEST).thenAck().thenError(Code.UNAVAILABLE);
     int errorTimes = MAX_RETRY_ATTEMPTS * 2;
     for (int i = 0; i < errorTimes; ++i) {
-      executionService.whenWaitExecution(DUMMY_REQUEST).thenAck().thenError(Code.DEADLINE_EXCEEDED);
+      executionService.whenWaitExecution(DUMMY_REQUEST).thenAck().thenError(Status.DEADLINE_EXCEEDED.asRuntimeException());
     }
     executionService.whenWaitExecution(DUMMY_REQUEST).thenDone(DUMMY_RESPONSE);
 

@@ -115,12 +115,14 @@ public class FakeExecutionService extends ExecutionImplBase {
     }
 
     public void thenError(Code code) {
-      Operation operation =
-          Operation.newBuilder()
-              .setName(getResourceName(request))
-              .setDone(true)
-              .setError(Status.newBuilder().setCode(code.getNumber()))
-              .build();
+      // From REAPI Spec:
+      // > Errors discovered during creation of the `Operation` will be reported
+      // > as gRPC Status errors, while errors that occurred while running the
+      // > action will be reported in the `status` field of the `ExecuteResponse`. The
+      // > server MUST NOT set the `error` field of the `Operation` proto.
+      Operation operation = doneOperation(request, ExecuteResponse.newBuilder()
+          .setStatus(Status.newBuilder().setCode(code.getNumber()))
+          .build());
       operations.add(() -> operation);
       finish();
     }
