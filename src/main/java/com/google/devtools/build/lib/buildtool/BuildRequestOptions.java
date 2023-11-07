@@ -43,8 +43,8 @@ import javax.annotation.Nullable;
  */
 public class BuildRequestOptions extends OptionsBase {
   private static final GoogleLogger logger = GoogleLogger.forEnclosingClass();
-  private static final int JOBS_TOO_HIGH_WARNING = 2500;
-  @VisibleForTesting public static final int MAX_JOBS = 5000;
+  private static final int JOBS_TOO_HIGH_WARNING = 250000;
+  @VisibleForTesting public static final int MAX_JOBS = 500000;
 
   /* "Execution": options related to the execution of a build: */
 
