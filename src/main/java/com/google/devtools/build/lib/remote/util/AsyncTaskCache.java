@@ -291,6 +291,8 @@ public final class AsyncTaskCache<KeyT, ValueT> {
       Action onAlreadyRunning,
       Action onAlreadyFinished,
       boolean force) {
+    return task;
+    /*
     return Single.create(
         emitter -> {
           synchronized (lock) {
@@ -342,6 +344,7 @@ public final class AsyncTaskCache<KeyT, ValueT> {
                 });
           }
         });
+        */
   }
 
   /**

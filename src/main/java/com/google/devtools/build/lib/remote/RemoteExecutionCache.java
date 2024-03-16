@@ -113,9 +113,8 @@ public class RemoteExecutionCache extends RemoteCache {
                         }));
 
     try {
-      // Workaround for https://github.com/bazelbuild/bazel/issues/19513.
-      if (!mergeBulkTransfer(uploads).blockingAwait(options.remoteTimeout.getSeconds(), SECONDS)) {
-        throw new IOException("Timed out when waiting for uploads");
+      while (!mergeBulkTransfer(uploads).blockingAwait(10, java.util.concurrent.TimeUnit.SECONDS)) {
+        System.err.println("STILL WAITING ON UPLOADS: " + uploads);
       }
     } catch (RuntimeException e) {
       Throwable cause = e.getCause();

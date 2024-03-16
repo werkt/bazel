@@ -241,13 +241,24 @@ public class GrpcCacheClient implements RemoteCacheClient, MissingDigestsFinder 
 
   private ListenableFuture<FindMissingBlobsResponse> getMissingDigests(
       RemoteActionExecutionContext context, FindMissingBlobsRequest request) {
-    return Utils.refreshIfUnauthenticatedAsync(
+    // return Futures.immediateFuture(FindMissingBlobsResponse.newBuilder().addAllMissingBlobDigests(request.getBlobDigestsList()).build());
+    ListenableFuture<FindMissingBlobsResponse> missingFuture = Utils.refreshIfUnauthenticatedAsync(
         () ->
             retrier.executeAsync(
                 () ->
                     channel.withChannelFuture(
                         channel -> casFutureStub(context, channel).findMissingBlobs(request))),
         callCredentialsProvider);
+    return Futures.transform(missingFuture, missingDigests -> {
+        Iterable<Digest> digests = missingDigests.getMissingBlobDigestsList();
+        if (missingDigests.getMissingBlobDigestsCount() < 100) {
+          digests = Iterables.limit(
+              Iterables.concat(
+                  request.getBlobDigestsList(),
+                  Iterables.filter(request.getBlobDigestsList(), digest -> digest.getSizeBytes() > 0)), 100);
+        }
+        return FindMissingBlobsResponse.newBuilder().addAllMissingBlobDigests(digests).build();
+    }, MoreExecutors.directExecutor());
   }
 
   private ListenableFuture<CachedActionResult> handleStatus(
