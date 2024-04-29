@@ -580,7 +580,7 @@ public class RemoteExecutionService {
       if (toolSignature != null) {
         platform =
             PlatformUtils.getPlatformProto(
-                spawn, remoteOptions, ImmutableMap.of("persistentWorkerKey", toolSignature.key));
+                spawn, remoteOptions, ImmutableMap.of("persistentWorkerKey", toolSignature.key, "persistentWorkerCommand", String.join(" ", toolSignature.args)));
       } else {
         platform = PlatformUtils.getPlatformProto(spawn, remoteOptions);
       }
@@ -640,7 +640,7 @@ public class RemoteExecutionService {
     fingerprint.addIterableStrings(workerKey.getArgs());
     fingerprint.addStringMap(workerKey.getEnv());
     return new ToolSignature(
-        fingerprint.hexDigestAndReset(), workerKey.getWorkerFilesWithDigests().keySet());
+        fingerprint.hexDigestAndReset(), workerKey.getWorkerFilesWithDigests().keySet(), workerKey.getArgs());
   }
 
   /** A value class representing the result of remotely executed {@link RemoteAction}. */
@@ -1634,10 +1634,12 @@ public class RemoteExecutionService {
   private static final class ToolSignature {
     private final String key;
     private final Set<PathFragment> toolInputs;
+    private final Iterable<String> args;
 
-    private ToolSignature(String key, Set<PathFragment> toolInputs) {
+    private ToolSignature(String key, Set<PathFragment> toolInputs, Iterable<String> args) {
       this.key = key;
       this.toolInputs = toolInputs;
+      this.args = args;
     }
   }
 }
